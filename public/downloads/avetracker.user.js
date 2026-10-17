@@ -64,7 +64,9 @@
                         GM_xmlhttpRequest({
                             method: "POST",
                             url: BACKEND_URL,
-                            headers: { "Content-Type": "application/json" },
+                            headers: {
+    				"Content-Type": "application/json",
+    				"Authorization": "Bearer ave_ваш_токен_из_сайта"},
                             data: JSON.stringify({ channel: channelName, track: trackString }),
                             onload: function(res) {
                                 console.log('[SE-Bridge] Трек отправлен для канала:', channelName);
