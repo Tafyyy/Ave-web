@@ -18,7 +18,7 @@ app.get('/download/exe', (req, res) => {
 });
 
 // Эндпоинт для автоматической установки UserScript через Tampermonkey
-app.get('/download/script', (req, res) => {
+app.get('/download/avetracker.user.js', (req, res) => {
     const filePath = path.join(__dirname, 'public', 'downloads', 'avetracker.user.js');
     
     // Указываем правильный MIME-тип, чтобы Tampermonkey перехватил скрипт
