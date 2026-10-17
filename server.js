@@ -118,33 +118,159 @@ app.get('/', async (req, res) => {
             <title>AVETRACKER — Главная</title>
             <style>
                 * { box-sizing: border-box; margin: 0; padding: 0; }
-                body { font-family: sans-serif; background-color: #0e0e10; color: #efeff1; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-                .container { background-color: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 40px; max-width: 600px; width: 100%; text-align: center; }
-                h1 { color: #9146ff; font-size: 32px; margin-bottom: 10px; }
+                body { 
+                    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                    background-color: #0e0e10; 
+                    color: #efeff1; 
+                    display: flex; 
+                    justify-content: center; 
+                    align-items: center; 
+                    min-height: 100vh;
+                    padding: 20px;
+                }
+                .main-wrapper {
+                    display: flex;
+                    gap: 20px;
+                    max-width: 1100px;
+                    width: 100%;
+                    justify-content: center;
+                    align-items: flex-start;
+                    transition: all 0.3s ease;
+                }
+                .container { 
+                    background-color: #18181b; 
+                    border: 1px solid #2f2f35; 
+                    border-radius: 12px; 
+                    padding: 40px; 
+                    max-width: 550px; 
+                    width: 100%; 
+                    text-align: center; 
+                    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+                    flex-shrink: 0;
+                }
+                h1 { color: #9146ff; font-size: 34px; margin-bottom: 12px; font-weight: 800; }
                 p { color: #adadb8; font-size: 15px; line-height: 1.6; margin-bottom: 25px; }
-                .section { margin-top: 30px; padding-top: 25px; border-top: 1px solid #2f2f35; }
+                .section { margin-top: 25px; padding-top: 25px; border-top: 1px solid #2f2f35; }
                 .section h2 { font-size: 18px; margin-bottom: 15px; color: #ffffff; }
-                .btn { display: inline-block; background-color: #9146ff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; margin: 8px 5px; }
+                .btn { display: inline-block; background-color: #9146ff; color: white; padding: 12px 22px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; margin: 6px 4px; transition: background 0.2s; }
                 .btn:hover { background-color: #772ce8; }
                 .btn-secondary { background-color: #2f2f35; color: #efeff1; }
-                .badge { display: inline-block; background: rgba(145, 70, 255, 0.15); color: #bf94ff; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-bottom: 15px; }
+                .btn-secondary:hover { background-color: #3a3a42; }
+                
+                .info-link {
+                    display: inline-block;
+                    margin-top: 12px;
+                    color: #bf94ff;
+                    font-size: 13px;
+                    text-decoration: none;
+                    cursor: pointer;
+                    transition: color 0.2s;
+                }
+                .info-link:hover { color: #ffffff; text-decoration: underline; }
+
+                /* Боковая панель с инструкцией */
+                .sidebar {
+                    display: none;
+                    background-color: #18181b;
+                    border: 1px solid #2f2f35;
+                    border-radius: 12px;
+                    padding: 30px;
+                    max-width: 480px;
+                    width: 100%;
+                    text-align: left;
+                    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+                    animation: fadeIn 0.3s ease;
+                }
+                .sidebar.active { display: block; }
+                .sidebar h3 { color: #bf94ff; font-size: 18px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+                .sidebar-close { cursor: pointer; color: #adadb8; font-size: 20px; border: none; background: none; }
+                .sidebar-close:hover { color: #fff; }
+                .step-block { background: #0e0e10; border: 1px solid #2f2f35; border-radius: 8px; padding: 15px; margin-bottom: 12px; }
+                .step-title { color: #fff; font-size: 14px; font-weight: bold; margin-bottom: 6px; }
+                .step-text { color: #adadb8; font-size: 13px; line-height: 1.5; }
+                .step-text ol { margin-left: 18px; }
+                .step-text li { margin-bottom: 4px; }
+
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateX(10px); }
+                    to { opacity: 1; transform: translateX(0); }
+                }
+
+                @media (max-width: 900px) {
+                    .main-wrapper { flex-direction: column; align-items: center; }
+                    .sidebar { max-width: 550px; }
+                }
             </style>
         </head>
         <body>
-            <div class="container">
-                <span class="badge">AVETRACKER Hub v3.2 (Supabase Tokens)</span>
-                <h1>AVETRACKER</h1>
-                <p>Вывод играющего трека из Яндекс Музыки прямо в ваш чат Twitch.</p>
-                <div class="section">
-                    <h2>Центр загрузок</h2>
-                    <a href="/download/avetracker.exe" class="btn">Скачать AVETRACKER.exe</a>
-                    <a href="/download/avetracker.user.js" class="btn btn-secondary">Установить UserScript</a>
+            <div class="main-wrapper">
+                <div class="container">
+                    <h1>AVETRACKER</h1>
+                    <p>Вывод играющего трека из Яндекс Музыки прямо в ваш чат Twitch.</p>
+                    
+                    <div class="section">
+                        <h2>Центр загрузок</h2>
+                        <div>
+                            <a href="/download/avetracker.exe" class="btn">Скачать AVETRACKER.exe</a>
+                            <a href="/download/avetracker.user.js" class="btn btn-secondary">Установить UserScript</a>
+                        </div>
+                        <div>
+                            <span class="info-link" onclick="toggleInstruction()">📖 Инструкция по установке и настройке</span>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h2>Личный кабинет стримера</h2>
+                        ${isLogged ? `<a href="/dashboard" class="btn">Перейти в личный кабинет</a>` : `<a href="/auth/twitch" class="btn" style="background: #9146FF;">Войти через Twitch</a>`}
+                    </div>
                 </div>
-                <div class="section">
-                    <h2>Личный кабинет стримера</h2>
-                    ${isLogged ? `<a href="/dashboard" class="btn">Перейти в личный кабинет</a>` : `<a href="/auth/twitch" class="btn" style="background: #9146FF;">Войти через Twitch</a>`}
+
+                <!-- Боковая панель инструкции -->
+                <div class="sidebar" id="instructionSidebar">
+                    <h3>
+                        <span>📖 Инструкция</span>
+                        <button class="sidebar-close" onclick="toggleInstruction()">✕</button>
+                    </h3>
+
+                    <div class="step-block">
+                        <div class="step-title">🌐 Вариант А: Через браузер (UserScript)</div>
+                        <div class="step-text">
+                            <ol>
+                                <li>Установите расширение <b>Violentmonkey</b> в браузер.</li>
+                                <li>Нажмите <b>«Установить UserScript»</b> и подтвердите установку.</li>
+                                <li>Войдите через Twitch на сайте и скопируйте <b>токен</b> из кабинета.</li>
+                                <li>Вставьте токен при первом проигрывании трека в Яндекс Музыке.</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="step-block">
+                        <div class="step-title">💻 Вариант Б: Приложение для Windows (.exe)</div>
+                        <div class="step-text">
+                            <ol>
+                                <li>Скачайте и запустите <b>AVETRACKER.exe</b>.</li>
+                                <li>Скопируйте ваш токен из Личного кабинета.</li>
+                                <li>Вставьте токен при первом запуске программы.</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="step-block">
+                        <div class="step-title">🤖 Настройка бота в чате (StreamElements)</div>
+                        <div class="step-text">
+                            1. Зайдите в Личный кабинет и скопируйте команду для бота.<br>
+                            2. Создайте команду (например, <code>!трек</code>) в панели StreamElements и вставьте скопированную ссылку.
+                        </div>
+                    </div>
                 </div>
             </div>
+
+            <script>
+                function toggleInstruction() {
+                    const sidebar = document.getElementById('instructionSidebar');
+                    sidebar.classList.toggle('active');
+                }
+            </script>
         </body>
         </html>
     `);
