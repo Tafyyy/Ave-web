@@ -19,7 +19,7 @@
     'use strict';
 
     // Адрес вашего сервера на Render
-    const BACKEND_URL = 'https://yandex-music-api.onrender.com/api/update-track';
+    const BACKEND_URL = 'https://avetracker-hub.onrender.com/api/update-track';
 
     // Получаем сохраненный ник из памяти браузера
     let channelName = GM_getValue('twitch_channel', '');
