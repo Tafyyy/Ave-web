@@ -15,8 +15,8 @@ app.use(session({
     saveUninitialized: false
 }));
 
-const TWITCH_CLIENT_ID = 'e2g9rcwz8ti2ivthv2g64tyziqel21';
-const TWITCH_CLIENT_SECRET = '4xnnc64vn27lvjlq1436ivp6qhji6d';
+const TWITCH_CLIENT_ID = 'ВАШ_TWITCH_CLIENT_ID';
+const TWITCH_CLIENT_SECRET = 'ВАШ_TWITCH_CLIENT_SECRET';
 const REDIRECT_URI = 'https://avetracker-hub.onrender.com/auth/twitch/callback';
 
 const ADMIN_SECRET_KEY = 'my_super_secret_admin_key_777';
@@ -48,7 +48,7 @@ function saveUsers(users) {
 let usersDB = loadUsers();
 const currentMusic = {};
 
-// Генерация токена с поддержкой соли (позволяет менять токен вручную по кнопке)
+// Генерация токена с поддержкой соли
 function createSecureToken(userId, username, salt = 'v1') {
     const data = `${userId}|${username}|${salt}`;
     const hmac = crypto.createHmac('sha256', TOKEN_SECRET).update(data).digest('hex').substring(0, 24);
@@ -115,7 +115,7 @@ app.get('/', (req, res) => {
         </head>
         <body>
             <div class="container">
-                <span class="badge">AVETRACKER Hub v2.7</span>
+                <span class="badge">AVETRACKER Hub v2.8</span>
                 <h1>AVETRACKER</h1>
                 <p>Вывод играющего трека из Яндекс Музыки прямо в ваш чат Twitch.</p>
                 <div class="section">
@@ -239,9 +239,16 @@ app.get('/regenerate-token', (req, res) => {
 
     if (!req.session.userId) return res.redirect('/');
     
-    // Создаем новую уникальную соль (токен изменится навсегда)
     const newSalt = 'v_' + Date.now().toString(36);
     req.session.salt = newSalt;
+
+    // Обновляем запись в базе пользователей для мониторинга в админке
+    usersDB = loadUsers();
+    if (usersDB[req.session.userId]) {
+        usersDB[req.session.userId].salt = newSalt;
+        usersDB[req.session.userId].lastUpdated = new Date().toLocaleString('ru-RU');
+        saveUsers(usersDB);
+    }
 
     const newToken = createSecureToken(req.session.userId, req.session.username, newSalt);
     res.setHeader('Set-Cookie', `avetracker_token=${newToken}; Max-Age=${60*60*24*365}; Path=/; HttpOnly; Secure; SameSite=Lax`);
@@ -249,7 +256,7 @@ app.get('/regenerate-token', (req, res) => {
     res.redirect('/dashboard');
 });
 
-// --- АДМИН-ПАНЕЛЬ ---
+// --- АДМИН-ПАНЕЛЬ С МОНИТОРИНГОМ ИЗМЕНЕНИЙ ---
 app.get('/admin', (req, res) => {
     const key = req.query.key;
     if (key !== ADMIN_SECRET_KEY) {
@@ -264,12 +271,25 @@ app.get('/admin', (req, res) => {
     const userIds = Object.keys(usersDB);
 
     if (userIds.length === 0) {
-        usersRows = '<tr><td colspan="4" style="text-align:center; color: #848494;">База данных пуста.</td></tr>';
+        usersRows = '<tr><td colspan="6" style="text-align:center; color: #848494;">База данных пуста (никто еще не авторизовывался).</td></tr>';
     } else {
         userIds.forEach((id, index) => {
             const u = usersDB[id];
-            const token = createSecureToken(id, u.username, u.salt || 'v1');
+            
+            // Базовый токен (который получается по умолчанию без перегенераций)
+            const defaultToken = createSecureToken(id, u.username, 'v1');
+            
+            // Текущий активный токен пользователя
+            const currentToken = createSecureToken(id, u.username, u.salt || 'v1');
+            
+            // Проверка статуса изменения
+            const isModified = u.salt && u.salt !== 'v1';
+            const statusBadge = isModified 
+                ? `<span style="background: rgba(255, 193, 7, 0.2); color: #ffc107; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold;">🟡 Перегенерирован (${u.salt})</span>` 
+                : `<span style="background: rgba(40, 167, 69, 0.2); color: #28a745; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold;">🟢 Стандартный (v1)</span>`;
+
             const cmd = `\$(customapi ${protocol}://${serverDomain}/api/track?channel=${u.username})`;
+            const lastActive = u.lastUpdated || 'При первом входе';
             
             usersRows += `
                 <tr>
@@ -277,17 +297,22 @@ app.get('/admin', (req, res) => {
                     <td>
                         <div style="display:flex; align-items:center; gap: 10px;">
                             <img src="${u.avatar || ''}" width="30" height="30" style="border-radius:50%; background:#2f2f35;">
-                            <b>${u.username}</b><br><span style="font-size:11px; color:#848494;">ID: ${id}</span>
+                            <div>
+                                <b>${u.username}</b><br>
+                                <span style="font-size:11px; color:#848494;">ID: ${id}</span>
+                            </div>
                         </div>
                     </td>
+                    <td>${statusBadge}</td>
                     <td>
                         <div style="display:flex; gap:5px;">
-                            <input type="password" id="adm_token_${id}" value="${token}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:220px; font-size:12px;" onclick="this.select();">
+                            <input type="password" id="adm_token_${id}" value="${currentToken}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:200px; font-size:12px;" onclick="this.select();">
                             <button onclick="toggleAdminToken('${id}')" style="background:#2f2f35; border:none; color:#fff; padding:0 8px; border-radius:4px; cursor:pointer;">👁️</button>
                         </div>
                     </td>
+                    <td style="font-size: 12px; color: #adadb8;">${lastActive}</td>
                     <td>
-                        <input type="text" value="${cmd}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:280px; font-size:11px;" onclick="this.select();">
+                        <input type="text" value="${cmd}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:220px; font-size:11px;" onclick="this.select();">
                     </td>
                 </tr>
             `;
@@ -303,23 +328,29 @@ app.get('/admin', (req, res) => {
             <style>
                 * { box-sizing: border-box; margin: 0; padding: 0; }
                 body { font-family: sans-serif; background: #0e0e10; color: #efeff1; padding: 30px; }
-                .container { max-width: 1000px; margin: 0 auto; background: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 25px; }
-                h1 { color: #9146ff; margin-bottom: 20px; font-size: 24px; }
+                .container { max-width: 1100px; margin: 0 auto; background: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 25px; }
+                h1 { color: #9146ff; margin-bottom: 20px; font-size: 24px; display: flex; justify-content: space-between; align-items: center; }
                 table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-                th, td { border-bottom: 1px solid #2f2f35; padding: 12px; text-align: left; font-size: 14px; }
-                th { color: #bf94ff; font-size: 13px; }
-                .badge { background: rgba(145, 70, 255, 0.15); color: #bf94ff; padding: 3px 8px; border-radius: 8px; font-size: 11px; }
+                th, td { border-bottom: 1px solid #2f2f35; padding: 12px; text-align: left; font-size: 13px; }
+                th { color: #bf94ff; font-size: 12px; }
+                .badge { background: rgba(145, 70, 255, 0.15); color: #bf94ff; padding: 4px 10px; border-radius: 8px; font-size: 12px; }
             </style>
         </head>
         <body>
             <div class="container">
-                <h1>Панель администратора AVETRACKER <span class="badge">База стримеров</span></h1>
+                <h1>
+                    <span>Панель администратора AVETRACKER</span>
+                    <span class="badge">Мониторинг токенов</span>
+                </h1>
+                <p style="color: #adadb8; font-size: 13px; margin-bottom: 15px;">Здесь вы можете отслеживать статус токенов каждого стримера и выявлять ручные сбросы.</p>
                 <table>
                     <thead>
                         <tr>
                             <th>#</th>
                             <th>Стример</th>
+                            <th>Статус токена</th>
                             <th>Текущий токен</th>
+                            <th>Обновлен</th>
                             <th>Команда StreamElements</th>
                         </tr>
                     </thead>
@@ -385,11 +416,15 @@ app.get('/auth/twitch/callback', async (req, res) => {
         const username = twitchUser.login.toLowerCase();
         const avatar = twitchUser.profile_image_url;
 
-        // Сохраняем в users.json для админки
         usersDB = loadUsers();
         let salt = usersDB[userId]?.salt || 'v1';
         
-        usersDB[userId] = { username, avatar, salt };
+        usersDB[userId] = { 
+            username, 
+            avatar, 
+            salt,
+            lastUpdated: new Date().toLocaleString('ru-RU')
+        };
         saveUsers(usersDB);
 
         req.session.userId = userId;
