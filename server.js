@@ -22,10 +22,14 @@ const REDIRECT_URI = 'https://avetracker-hub.onrender.com/auth/twitch/callback';
 const ADMIN_SECRET_KEY = 'my_super_secret_admin_key_777';
 const TOKEN_SECRET = 'avetracker_eternal_secure_key_2026';
 
-// Подключение к Supabase (PostgreSQL) через переменную среды DATABASE_URL
+// Подключение к Supabase (PostgreSQL) через раздельные параметры
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false } // Требуется для безопасного облачного подключения к Supabase
+    host: process.env.PGHOST,
+    port: process.env.PGPORT ? parseInt(process.env.PGPORT, 10) : 5432,
+    database: process.env.PGDATABASE,
+    user: process.env.PGUSER,
+    password: process.env.PGPASSWORD,
+    ssl: { rejectUnauthorized: false }
 });
 
 // Инициализация таблицы в базе данных при старте сервера
