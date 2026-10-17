@@ -17,12 +17,16 @@ app.get('/download/exe', (req, res) => {
     });
 });
 
-// Эндпоинт для скачивания UserScript
+// Эндпоинт для автоматической установки UserScript через Tampermonkey
 app.get('/download/script', (req, res) => {
     const filePath = path.join(__dirname, 'public', 'downloads', 'avetracker.user.js');
-    res.download(filePath, 'avetracker.user.js', (err) => {
+    
+    // Указываем правильный MIME-тип, чтобы Tampermonkey перехватил скрипт
+    res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+    
+    res.sendFile(filePath, (err) => {
         if (err) {
-            console.error('Ошибка при скачивании скрипта:', err);
+            console.error('Ошибка при отправке скрипта:', err);
             res.status(404).send('Файл скрипта не найден на сервере.');
         }
     });
