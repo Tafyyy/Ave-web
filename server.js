@@ -260,7 +260,7 @@ app.get('/dashboard', async (req, res) => {
     `);
 });
 
-// Кнопка ручного сброса токена (сдвигает текущий в предыдущий)
+// Кнопка ручного сброса токена
 app.get('/regenerate-token', async (req, res) => {
     const cookies = getCookies(req);
     let tokenData = await validateToken(cookies.avetracker_token);
@@ -272,11 +272,14 @@ app.get('/regenerate-token', async (req, res) => {
 
     if (!req.session.userId) return res.redirect('/');
     
+    // Генерируем уникальную новую соль
     const newSalt = 'v_' + Date.now().toString(36);
     req.session.salt = newSalt;
+    
+    // Создаем абсолютно новый токен на основе новой соли
     const newToken = createSecureToken(req.session.userId, req.session.username, newSalt);
 
-    // Безопасное обновление с переносом старого активного токена в previous_token
+    // Сдвигаем текущий активный токен в предыдущий, а новый записываем как active_token
     try {
         await pool.query(`
             UPDATE users 
@@ -288,9 +291,10 @@ app.get('/regenerate-token', async (req, res) => {
             WHERE user_id = $4
         `, [newToken, newSalt, new Date().toLocaleString('ru-RU'), req.session.userId]);
     } catch (err) {
-        console.error('Ошибка пересоздания токена в базе:', err);
+        console.error('Ошибка при пересоздании токена в базе:', err);
     }
 
+    // Устанавливаем новый токен в куки браузера
     res.setHeader('Set-Cookie', `avetracker_token=${newToken}; Max-Age=${60*60*24*365}; Path=/; HttpOnly; Secure; SameSite=Lax`);
     res.redirect('/dashboard');
 });
