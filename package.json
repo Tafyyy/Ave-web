@@ -1,15 +1,12 @@
 {
-  "name": "ave-web",
+  "name": "avetracker-hub",
   "version": "1.0.0",
-  "description": "",
+  "description": "AVETRACKER Web Hub",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
     "start": "node server.js"
   },
-  "keywords": [],
-  "type": "commonjs",
   "dependencies": {
-    "express": "^5.3.0"
+    "express": "^4.19.2"
   }
 }
