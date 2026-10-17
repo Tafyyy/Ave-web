@@ -1,6 +1,7 @@
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 
@@ -14,14 +15,17 @@ app.use(session({
     saveUninitialized: false
 }));
 
-// Настройки Twitch OAuth (замените на свои данные)
-const TWITCH_CLIENT_ID = 'e2g9rcwz8ti2ivthv2g64tyziqel21';
-const TWITCH_CLIENT_SECRET = '4xnnc64vn27lvjlq1436ivp6qhji6d';
-const REDIRECT_URI = 'https://avetracker-hub.onrender.com/auth/twitch/callback'; // Или http://localhost:3000/... для тестов
+// Настройки Twitch OAuth
+const TWITCH_CLIENT_ID = 'ВАШ_TWITCH_CLIENT_ID';
+const TWITCH_CLIENT_SECRET = 'ВАШ_TWITCH_CLIENT_SECRET';
+const REDIRECT_URI = 'https://avetracker-hub.onrender.com/auth/twitch/callback';
 
-// Временная база данных пользователей в памяти
-// Структура: { twitchId: { username, avatar } }
+// База данных пользователей в памяти
+// Структура: { twitchId: { username, avatar, token } }
 const usersDB = {};
+
+// База данных для хранения текущих треков (channel -> track)
+const currentMusic = {};
 
 // --- МАРШРУТЫ САЙТА ---
 
@@ -113,6 +117,9 @@ app.get('/dashboard', (req, res) => {
     }
 
     const user = usersDB[req.session.userId];
+    const serverDomain = req.get('host'); // Автоматически определяет домен (например, ваш render-адрес или localhost)
+    const protocol = req.protocol;
+    const streamElementsCommand = `\$(customapi ${protocol}://${serverDomain}/api/track?channel=${user.username})`;
 
     res.send(`
         <!DOCTYPE html>
@@ -123,26 +130,41 @@ app.get('/dashboard', (req, res) => {
             <style>
                 * { box-sizing: border-box; margin: 0; padding: 0; }
                 body { font-family: sans-serif; background: #0e0e10; color: #efeff1; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-                .container { background: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 40px; max-width: 500px; width: 100%; text-align: center; }
-                .avatar { width: 80px; height: 80px; border-radius: 50%; margin-bottom: 15px; border: 2px solid #9146ff; }
-                h2 { color: #fff; margin-bottom: 5px; }
-                p { color: #adadb8; font-size: 14px; margin-bottom: 20px; }
-                .btn { display: inline-block; background: #2f2f35; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; }
+                .container { background: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 30px; max-width: 550px; width: 100%; text-align: left; }
+                .profile-header { display: flex; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #2f2f35; padding-bottom: 15px; }
+                .avatar { width: 60px; height: 60px; border-radius: 50%; margin-right: 15px; border: 2px solid #9146ff; }
+                h2 { color: #fff; font-size: 22px; }
+                .subtext { color: #adadb8; font-size: 13px; }
+                label { display: block; color: #bf94ff; font-size: 13px; font-weight: bold; margin-bottom: 5px; margin-top: 15px; }
+                input { width: 100%; background: #0e0e10; border: 1px solid #2f2f35; color: #efeff1; padding: 10px; border-radius: 6px; font-size: 14px; outline: none; }
+                input:focus { border-color: #9146ff; }
+                .actions { margin-top: 25px; display: flex; justify-content: space-between; align-items: center; }
+                .btn { display: inline-block; background: #2f2f35; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; text-align: center; }
                 .btn:hover { background: #3a3a42; }
-                .btn-danger { background: #eb0400; color: white; }
+                .btn-danger { background: #eb0400; }
                 .btn-danger:hover { background: #c20300; }
             </style>
         </head>
         <body>
             <div class="container">
-                <img src="${user.avatar}" alt="Avatar" class="avatar">
-                <h2>${user.username}</h2>
-                <p>Авторизация через Twitch прошла успешно!</p>
-                <hr style="border: 0; border-top: 1px solid #2f2f35; margin: 20px 0;">
-                <p style="color: #bf94ff;">Здесь скоро появится ваш защищенный токен для программы и команды.</p>
-                <br>
-                <a href="/" class="btn" style="margin-right: 10px;">На главную</a>
-                <a href="/logout" class="btn btn-danger">Выйти</a>
+                <div class="profile-header">
+                    <img src="${user.avatar}" alt="Avatar" class="avatar">
+                    <div>
+                        <h2>${user.username}</h2>
+                        <span class="subtext">Авторизован через Twitch</span>
+                    </div>
+                </div>
+
+                <label>Ваш защищенный токен (для приложения и скрипта):</label>
+                <input type="text" value="${user.token}" readonly onclick="this.select();">
+
+                <label>Команда для StreamElements (!трек):</label>
+                <input type="text" value="${streamElementsCommand}" readonly onclick="this.select();">
+
+                <div class="actions">
+                    <a href="/" class="btn">На главную</a>
+                    <a href="/logout" class="btn btn-danger">Выйти</a>
+                </div>
             </div>
         </body>
         </html>
@@ -168,7 +190,6 @@ app.get('/auth/twitch/callback', async (req, res) => {
     if (!code) return res.redirect('/');
 
     try {
-        // 1. Обмениваем код на access_token
         const tokenRes = await fetch('https://id.twitch.tv/oauth2/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -183,10 +204,9 @@ app.get('/auth/twitch/callback', async (req, res) => {
         const tokenData = await tokenRes.json();
 
         if (!tokenData.access_token) {
-            return res.status(400).send('Ошибка авторизации в Twitch: не удалось получить токен.');
+            return res.status(400).send('Ошибка авторизации в Twitch.');
         }
 
-        // 2. Запрашиваем данные профиля пользователя из Helix API
         const userRes = await fetch('https://api.twitch.tv/helix/users', {
             headers: {
                 'Client-ID': TWITCH_CLIENT_ID,
@@ -197,20 +217,62 @@ app.get('/auth/twitch/callback', async (req, res) => {
         const twitchUser = userData.data[0];
 
         const userId = twitchUser.id;
-        const username = twitchUser.login;
+        const username = twitchUser.login.toLowerCase();
         const avatar = twitchUser.profile_image_url;
 
-        // 3. Сохраняем в базу данных
-        usersDB[userId] = { username, avatar };
+        // Если пользователя еще нет — создаем профиль и генерируем уникальный токен
+        if (!usersDB[userId]) {
+            usersDB[userId] = {
+                username: username,
+                avatar: avatar,
+                token: 'ave_' + crypto.randomBytes(24).toString('hex')
+            };
+        } else {
+            // Обновляем аватарку/ник на случай изменений, но сохраняем старый токен
+            usersDB[userId].username = username;
+            usersDB[userId].avatar = avatar;
+            if (!usersDB[userId].token) {
+                usersDB[userId].token = 'ave_' + crypto.randomBytes(24).toString('hex');
+            }
+        }
 
-        // 4. Устанавливаем сессию
         req.session.userId = userId;
         res.redirect('/dashboard');
 
     } catch (err) {
         console.error('OAuth Error:', err);
-        res.status(500).send('Внутренняя ошибка сервера при авторизации.');
+        res.status(500).send('Ошибка авторизации.');
     }
+});
+
+// --- API ДЛЯ ТРЕКЕРОВ И ЧАТА (С ЗАЩИТОЙ ПО ТОКЕНУ) ---
+
+// Прием трека от приложения или расширения (требует Authorization: Bearer <token>)
+app.post('/api/update-track', (req, res) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    const { track } = req.body;
+
+    if (!token || !track) {
+        return res.status(400).send('Bad request');
+    }
+
+    // Ищем пользователя по токену
+    const user = Object.values(usersDB).find(u => u.token === token);
+    if (!user) {
+        return res.status(401).send('Unauthorized: Invalid token');
+    }
+
+    currentMusic[user.username] = track;
+    res.send('OK');
+});
+
+// Публичный эндпоинт для StreamElements (отдает текущий трек по нику)
+app.get('/api/track', (req, res) => {
+    const channel = req.query.channel;
+    if (!channel) return res.status(400).send('Missing channel');
+    const track = currentMusic[channel.toLowerCase()] || 'Музыка не играет';
+    res.send(track);
 });
 
 // --- СТАТИКА И СКАЧИВАНИЕ ФАЙЛОВ ---
