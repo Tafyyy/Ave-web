@@ -20,18 +20,86 @@ const TWITCH_CLIENT_ID = 'e2g9rcwz8ti2ivthv2g64tyziqel21';
 const TWITCH_CLIENT_SECRET = '4xnnc64vn27lvjlq1436ivp6qhji6d';
 const REDIRECT_URI = 'https://avetracker-hub.onrender.com/auth/twitch/callback';
 
-// База данных пользователей в памяти
-// Структура: { twitchId: { username, avatar, token } }
-const usersDB = {};
+// Секретный ключ для криптографической подписи токенов (не меняйте его, иначе токены сбросятся)
+const TOKEN_SECRET = 'avetracker_secure_hmac_secret_key_999';
 
-// База данных для хранения текущих треков (channel -> track)
 const currentMusic = {};
+
+// --- КРИПТОГРАФИЧЕСКИЕ ТОКЕНЫ (Без баз данных и файлов) ---
+
+// Генерация постоянного токена, в который зашит userId и username
+function generateToken(userId, username) {
+    const payload = `${userId}:${username}`;
+    const hmac = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('hex').substring(0, 24);
+    return `ave_${userId}_${hmac}`;
+}
+
+// Проверка и расшифровка токена
+function verifyToken(token) {
+    if (!token || !token.startsWith('ave_')) return null;
+    const parts = token.split('_');
+    if (parts.length < 3) return null;
+    
+    const userId = parts[1];
+    
+    // Нам нужно найти пользователя по userId (восстанавливаем из токена)
+    // Но так как у нас нет базы, проверим подпись со всеми известными никами или восстановим из куки.
+    // Упростим: зашием в токен формат ave_userId_username_hmac
+    return null; // используем расширенный формат ниже
+}
+
+// Надежный генератор с зашифрованным ником
+function createSecureToken(userId, username) {
+    const data = `${userId}|${username}`;
+    const hmac = crypto.createHmac('sha256', TOKEN_SECRET).update(data).digest('hex').substring(0, 20);
+    // Кодируем в base64url чтобы избежать проблем с символами
+    const encoded = Buffer.from(data).toString('base64url');
+    return `ave_${encoded}_${hmac}`;
+}
+
+function parseSecureToken(token) {
+    if (!token || !token.startsWith('ave_')) return null;
+    const parts = token.split('_');
+    if (parts.length !== 3) return null;
+    
+    const encoded = parts[1];
+    const receivedHmac = parts[2];
+    
+    try {
+        const decoded = Buffer.from(encoded, 'base64url').toString('utf8');
+        const [userId, username] = decoded.split('|');
+        
+        // Проверяем подпись
+        const expectedHmac = crypto.createHmac('sha256', TOKEN_SECRET).update(decoded).digest('hex').substring(0, 20);
+        if (receivedHmac === expectedHmac) {
+            return { userId, username };
+        }
+    } catch (e) {
+        return null;
+    }
+    return null;
+}
+
+// Вспомогательная функция чтения кук из запроса
+function getCookies(req) {
+    const list = {};
+    const cookieHeader = req.headers.cookie;
+    if (!cookieHeader) return list;
+    cookieHeader.split(`;`).forEach(cookie => {
+        const [name, ...rest] = cookie.split(`=`);
+        list[name.trim()] = decodeURIComponent(rest.join(`=`));
+    });
+    return list;
+}
 
 // --- МАРШРУТЫ САЙТА ---
 
-// Главная страница
 app.get('/', (req, res) => {
-    const isLogged = req.session.userId ? true : false;
+    // Проверяем сессию или куки
+    const cookies = getCookies(req);
+    const tokenData = parseSecureToken(cookies.avetracker_token);
+    const isLogged = req.session.userId || tokenData ? true : false;
+
     res.send(`
         <!DOCTYPE html>
         <html lang="ru">
@@ -40,69 +108,31 @@ app.get('/', (req, res) => {
             <title>AVETRACKER — Главная</title>
             <style>
                 * { box-sizing: border-box; margin: 0; padding: 0; }
-                body {
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    background-color: #0e0e10;
-                    color: #efeff1;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    min-height: 100vh;
-                }
-                .container {
-                    background-color: #18181b;
-                    border: 1px solid #2f2f35;
-                    border-radius: 12px;
-                    padding: 40px;
-                    max-width: 600px;
-                    width: 100%;
-                    text-align: center;
-                    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-                }
+                body { font-family: sans-serif; background-color: #0e0e10; color: #efeff1; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+                .container { background-color: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 40px; max-width: 600px; width: 100%; text-align: center; }
                 h1 { color: #9146ff; font-size: 32px; margin-bottom: 10px; }
                 p { color: #adadb8; font-size: 15px; line-height: 1.6; margin-bottom: 25px; }
                 .section { margin-top: 30px; padding-top: 25px; border-top: 1px solid #2f2f35; }
                 .section h2 { font-size: 18px; margin-bottom: 15px; color: #ffffff; }
-                .btn {
-                    display: inline-block;
-                    background-color: #9146ff;
-                    color: white;
-                    padding: 12px 24px;
-                    text-decoration: none;
-                    border-radius: 6px;
-                    font-weight: bold;
-                    font-size: 14px;
-                    margin: 8px 5px;
-                    transition: background 0.2s;
-                }
+                .btn { display: inline-block; background-color: #9146ff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; margin: 8px 5px; }
                 .btn:hover { background-color: #772ce8; }
                 .btn-secondary { background-color: #2f2f35; color: #efeff1; }
-                .btn-secondary:hover { background-color: #3a3a42; }
-                .badge {
-                    display: inline-block; background: rgba(145, 70, 255, 0.15);
-                    color: #bf94ff; padding: 4px 10px; border-radius: 12px;
-                    font-size: 12px; font-weight: 600; margin-bottom: 15px;
-                }
+                .badge { display: inline-block; background: rgba(145, 70, 255, 0.15); color: #bf94ff; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-bottom: 15px; }
             </style>
         </head>
         <body>
             <div class="container">
-                <span class="badge">AVETRACKER Hub v2.0</span>
+                <span class="badge">AVETRACKER Hub v2.2</span>
                 <h1>AVETRACKER</h1>
                 <p>Вывод играющего трека из Яндекс Музыки прямо в ваш чат Twitch.</p>
-                
                 <div class="section">
                     <h2>Центр загрузок</h2>
                     <a href="/download/avetracker.exe" class="btn">Скачать AVETRACKER.exe</a>
                     <a href="/download/avetracker.user.js" class="btn btn-secondary">Установить UserScript</a>
                 </div>
-
                 <div class="section">
                     <h2>Личный кабинет стримера</h2>
-                    ${isLogged ? 
-                        `<a href="/dashboard" class="btn">Перейти в личный кабинет</a>` : 
-                        `<a href="/auth/twitch" class="btn" style="background: #9146FF;">Войти через Twitch</a>`
-                    }
+                    ${isLogged ? `<a href="/dashboard" class="btn">Перейти в личный кабинет</a>` : `<a href="/auth/twitch" class="btn" style="background: #9146FF;">Войти через Twitch</a>`}
                 </div>
             </div>
         </body>
@@ -110,16 +140,28 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Личный кабинет
+// Личный кабинет с автоматическим восстановлением сессии из куки
 app.get('/dashboard', (req, res) => {
-    if (!req.session.userId || !usersDB[req.session.userId]) {
-        return res.redirect('/');
+    const cookies = getCookies(req);
+    
+    // Если сессия пустая, но есть защищенный токен в куках — автоматически восстанавливаем сессию!
+    if (!req.session.userId && cookies.avetracker_token) {
+        const tokenData = parseSecureToken(cookies.avetracker_token);
+        if (tokenData) {
+            req.session.userId = tokenData.userId;
+            req.session.username = tokenData.username;
+        }
     }
 
-    const user = usersDB[req.session.userId];
-    const serverDomain = req.get('host'); // Автоматически определяет домен (например, ваш render-адрес или localhost)
+    if (!req.session.userId) {
+        return res.redirect('/auth/twitch');
+    }
+
+    const username = req.session.username;
+    const token = cookies.avetracker_token;
+    const serverDomain = req.get('host');
     const protocol = req.protocol;
-    const streamElementsCommand = `\$(customapi ${protocol}://${serverDomain}/api/track?channel=${user.username})`;
+    const streamElementsCommand = `\$(customapi ${protocol}://${serverDomain}/api/track?channel=${username})`;
 
     res.send(`
         <!DOCTYPE html>
@@ -132,15 +174,15 @@ app.get('/dashboard', (req, res) => {
                 body { font-family: sans-serif; background: #0e0e10; color: #efeff1; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
                 .container { background: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 30px; max-width: 550px; width: 100%; text-align: left; }
                 .profile-header { display: flex; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #2f2f35; padding-bottom: 15px; }
-                .avatar { width: 60px; height: 60px; border-radius: 50%; margin-right: 15px; border: 2px solid #9146ff; }
                 h2 { color: #fff; font-size: 22px; }
                 .subtext { color: #adadb8; font-size: 13px; }
                 label { display: block; color: #bf94ff; font-size: 13px; font-weight: bold; margin-bottom: 5px; margin-top: 15px; }
                 input { width: 100%; background: #0e0e10; border: 1px solid #2f2f35; color: #efeff1; padding: 10px; border-radius: 6px; font-size: 14px; outline: none; }
-                input:focus { border-color: #9146ff; }
-                .actions { margin-top: 25px; display: flex; justify-content: space-between; align-items: center; }
-                .btn { display: inline-block; background: #2f2f35; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; text-align: center; }
+                .actions { margin-top: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+                .btn { display: inline-block; background: #2f2f35; color: white; padding: 10px 15px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 13px; text-align: center; border: none; cursor: pointer; }
                 .btn:hover { background: #3a3a42; }
+                .btn-primary { background: #9146ff; }
+                .btn-primary:hover { background: #772ce8; }
                 .btn-danger { background: #eb0400; }
                 .btn-danger:hover { background: #c20300; }
             </style>
@@ -148,15 +190,15 @@ app.get('/dashboard', (req, res) => {
         <body>
             <div class="container">
                 <div class="profile-header">
-                    <img src="${user.avatar}" alt="Avatar" class="avatar">
                     <div>
-                        <h2>${user.username}</h2>
-                        <span class="subtext">Авторизован через Twitch</span>
+                        <h2>${username}</h2>
+                        <span class="subtext">Авторизован через Twitch (Постоянный токен)</span>
                     </div>
                 </div>
 
-                <label>Ваш защищенный токен (для приложения и скрипта):</label>
-                <input type="text" value="${user.token}" readonly onclick="this.select();">
+                <label>Ваш постоянный защищенный токен:</label>
+                <input type="text" value="${token}" readonly onclick="this.select();">
+                <p style="color: #848494; font-size: 11px; margin-top: 5px;">Этот токен никогда не изменится и не сбросится при перезагрузке сервера.</p>
 
                 <label>Команда для StreamElements (!трек):</label>
                 <input type="text" value="${streamElementsCommand}" readonly onclick="this.select();">
@@ -171,14 +213,15 @@ app.get('/dashboard', (req, res) => {
     `);
 });
 
-// Выход из сессии
 app.get('/logout', (req, res) => {
     req.session.destroy(() => {
+        // Удаляем куку с токеном при выходе
+        res.setHeader('Set-Cookie', 'avetracker_token=; Max-Age=0; Path=/; HttpOnly; Secure');
         res.redirect('/');
     });
 });
 
-// --- TWITCH OAUTH МАРШРУТЫ ---
+// --- TWITCH OAUTH ---
 
 app.get('/auth/twitch', (req, res) => {
     const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${TWITCH_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=user:read:email`;
@@ -202,41 +245,26 @@ app.get('/auth/twitch/callback', async (req, res) => {
             })
         });
         const tokenData = await tokenRes.json();
-
-        if (!tokenData.access_token) {
-            return res.status(400).send('Ошибка авторизации в Twitch.');
-        }
+        if (!tokenData.access_token) return res.status(400).send('Ошибка авторизации в Twitch.');
 
         const userRes = await fetch('https://api.twitch.tv/helix/users', {
-            headers: {
-                'Client-ID': TWITCH_CLIENT_ID,
-                'Authorization': `Bearer ${tokenData.access_token}`
-            }
+            headers: { 'Client-ID': TWITCH_CLIENT_ID, 'Authorization': `Bearer ${tokenData.access_token}` }
         });
         const userData = await userRes.json();
         const twitchUser = userData.data[0];
 
         const userId = twitchUser.id;
         const username = twitchUser.login.toLowerCase();
-        const avatar = twitchUser.profile_image_url;
 
-        // Если пользователя еще нет — создаем профиль и генерируем уникальный токен
-        if (!usersDB[userId]) {
-            usersDB[userId] = {
-                username: username,
-                avatar: avatar,
-                token: 'ave_' + crypto.randomBytes(24).toString('hex')
-            };
-        } else {
-            // Обновляем аватарку/ник на случай изменений, но сохраняем старый токен
-            usersDB[userId].username = username;
-            usersDB[userId].avatar = avatar;
-            if (!usersDB[userId].token) {
-                usersDB[userId].token = 'ave_' + crypto.randomBytes(24).toString('hex');
-            }
-        }
+        // Создаем постоянный крипто-токен
+        const permanentToken = createSecureToken(userId, username);
 
+        // Сохраняем сессию
         req.session.userId = userId;
+        req.session.username = username;
+
+        // Сохраняем токен в долгую куку браузера (на 1 год)
+        res.setHeader('Set-Cookie', `avetracker_token=${permanentToken}; Max-Age=${60*60*24*365}; Path=/; HttpOnly; Secure; SameSite=Lax`);
         res.redirect('/dashboard');
 
     } catch (err) {
@@ -245,29 +273,23 @@ app.get('/auth/twitch/callback', async (req, res) => {
     }
 });
 
-// --- API ДЛЯ ТРЕКЕРОВ И ЧАТА (С ЗАЩИТОЙ ПО ТОКЕНУ) ---
+// --- API ДЛЯ ТРЕКЕРОВ ---
 
-// Прием трека от приложения или расширения (требует Authorization: Bearer <token>)
 app.post('/api/update-track', (req, res) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     const { track } = req.body;
 
-    if (!token || !track) {
-        return res.status(400).send('Bad request');
-    }
+    if (!token || !track) return res.status(400).send('Bad request');
 
-    // Ищем пользователя по токену
-    const user = Object.values(usersDB).find(u => u.token === token);
-    if (!user) {
-        return res.status(401).send('Unauthorized: Invalid token');
-    }
+    // Проверяем токен математически (без баз данных)
+    const tokenData = parseSecureToken(token);
+    if (!tokenData) return res.status(401).send('Unauthorized: Invalid token');
 
-    currentMusic[user.username] = track;
+    currentMusic[tokenData.username] = track;
     res.send('OK');
 });
 
-// Публичный эндпоинт для StreamElements (отдает текущий трек по нику)
 app.get('/api/track', (req, res) => {
     const channel = req.query.channel;
     if (!channel) return res.status(400).send('Missing channel');
@@ -275,7 +297,12 @@ app.get('/api/track', (req, res) => {
     res.send(track);
 });
 
-// --- СТАТИКА И СКАЧИВАНИЕ ФАЙЛОВ ---
+// Endpoint для предотвращения засыпания (Keep-Alive пинг)
+app.get('/api/ping', (req, res) => {
+    res.status(200).send('PONG');
+});
+
+// --- СТАТИКА ---
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get(['/download/script', '/download/avetracker.user.js'], (req, res) => {
