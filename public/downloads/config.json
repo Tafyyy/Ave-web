@@ -1,5 +1,5 @@
 {
-    "twitch_channel": "ave_13c690043968f3a670bc9443689c4ac6fca3bfae8b54382d",
-    "backend_url": "https://yandex-music-api.onrender.com/api/update-track",
+    "user_token": "ave_dee84ae16665f7b4f46abc576580e245d1e65564fe6db11f",
+    "backend_url": "https://avetracker-hub.onrender.com/api/update-track",
     "update_interval_sec": 5
 }
