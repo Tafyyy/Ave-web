@@ -22,6 +22,9 @@ const REDIRECT_URI = 'https://avetracker-hub.onrender.com/auth/twitch/callback';
 const ADMIN_SECRET_KEY = 'my_super_secret_admin_key_777';
 const TOKEN_SECRET = 'avetracker_eternal_secure_key_2026';
 
+// ==========================================
+// ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ SUPABASE (PostgreSQL)
+// ==========================================
 const pool = new Pool({
     host: process.env.PGHOST,
     port: process.env.PGPORT ? parseInt(process.env.PGPORT, 10) : 5432,
@@ -31,6 +34,7 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false }
 });
 
+// Инициализация таблицы пользователей при старте сервера
 async function initDB() {
     try {
         await pool.query(`
@@ -53,6 +57,11 @@ initDB();
 
 const currentMusic = {};
 
+// ==========================================
+// КРИПТОГРАФИЯ И ТОКЕНЫ
+// ==========================================
+
+// Генерация безопасного токена
 function createSecureToken(userId, username, salt = 'v1') {
     const data = `${userId}|${username}|${salt}`;
     const hmac = crypto.createHmac('sha256', TOKEN_SECRET).update(data).digest('hex').substring(0, 24);
@@ -60,6 +69,7 @@ function createSecureToken(userId, username, salt = 'v1') {
     return `ave_${encoded}_${hmac}`;
 }
 
+// Проверка токена по базе данных (активный или предыдущий)
 async function validateToken(token) {
     if (!token || !token.startsWith('ave_')) return null;
     const parts = token.split('_');
@@ -86,6 +96,7 @@ async function validateToken(token) {
     return null;
 }
 
+// Быстрый парсинг токена без запроса в БД
 function parseSecureToken(token) {
     if (!token || !token.startsWith('ave_')) return null;
     const parts = token.split('_');
@@ -105,6 +116,7 @@ function parseSecureToken(token) {
     return null;
 }
 
+// Вспомогательная функция для чтения кук из запроса
 function getCookies(req) {
     const list = {};
     const cookieHeader = req.headers.cookie;
@@ -116,6 +128,12 @@ function getCookies(req) {
     return list;
 }
 
+
+// ==========================================
+// МАРШРУТЫ САЙТА (FRONTEND)
+// ==========================================
+
+// Главная страница
 app.get('/', async (req, res) => {
     const cookies = getCookies(req);
     const tokenData = await validateToken(cookies.avetracker_token);
@@ -179,6 +197,7 @@ app.get('/', async (req, res) => {
                 }
                 .info-link:hover { color: #ffffff; text-decoration: underline; }
 
+                /* Боковая панель с инструкцией */
                 .sidebar {
                     display: none;
                     background-color: #18181b;
@@ -235,6 +254,7 @@ app.get('/', async (req, res) => {
                     </div>
                 </div>
 
+                <!-- Боковая панель инструкции -->
                 <div class="sidebar" id="instructionSidebar">
                     <h3>
                         <span>📖 Инструкция</span>
@@ -285,6 +305,7 @@ app.get('/', async (req, res) => {
     `);
 });
 
+// Личный кабинет стримера
 app.get('/dashboard', async (req, res) => {
     const cookies = getCookies(req);
     let tokenData = await validateToken(cookies.avetracker_token);
@@ -392,6 +413,7 @@ app.get('/dashboard', async (req, res) => {
     `);
 });
 
+// Кнопка ручного сброса/перегенерации токена
 app.get('/regenerate-token', async (req, res) => {
     if (!req.session.userId) {
         const cookies = getCookies(req);
@@ -431,6 +453,7 @@ app.get('/regenerate-token', async (req, res) => {
     res.redirect('/dashboard');
 });
 
+// Админ-панель
 app.get('/admin', async (req, res) => {
     const key = req.query.key;
     if (key !== ADMIN_SECRET_KEY) {
@@ -554,6 +577,7 @@ app.get('/admin', async (req, res) => {
     `);
 });
 
+// Выход из аккаунта (очистка сессии и кук)
 app.get('/logout', (req, res) => {
     req.session.destroy(() => {
         res.setHeader('Set-Cookie', 'avetracker_token=; Max-Age=0; Path=/; HttpOnly; Secure');
@@ -561,6 +585,10 @@ app.get('/logout', (req, res) => {
     });
 });
 
+
+// ==========================================
+// АВТОРИЗАЦИЯ ЧЕРЕЗ TWITCH (OAuth2)
+// ==========================================
 app.get('/auth/twitch', (req, res) => {
     const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${TWITCH_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=user:read:email`;
     res.redirect(authUrl);
@@ -599,86 +627,4 @@ app.get('/auth/twitch/callback', async (req, res) => {
         let existingToken = null;
         try {
             const existing = await pool.query('SELECT salt, active_token FROM users WHERE user_id = $1', [userId]);
-            if (existing.rows.length > 0) {
-                salt = existing.rows[0].salt || 'v1';
-                existingToken = existing.rows[0].active_token;
-            }
-        } catch (err) {
-            console.error('Ошибка проверки пользователя в базе:', err);
-        }
-
-        const permanentToken = existingToken || createSecureToken(userId, username, salt);
-
-        try {
-            await pool.query(
-                `INSERT INTO users (user_id, username, avatar, salt, active_token, last_updated) 
-                 VALUES ($1, $2, $3, $4, $5, $6)
-                 ON CONFLICT (user_id) 
-                 DO UPDATE SET 
-                    username = EXCLUDED.username, 
-                    avatar = EXCLUDED.avatar, 
-                    last_updated = EXCLUDED.last_updated`,
-                [userId, username, avatar, salt, permanentToken, new Date().toLocaleString('ru-RU')]
-            );
-        } catch (err) {
-            console.error('Ошибка записи при авторизации:', err);
-        }
-
-        req.session.userId = userId;
-        req.session.username = username;
-        req.session.salt = salt;
-
-        res.setHeader('Set-Cookie', `avetracker_token=${permanentToken}; Max-Age=${60*60*24*365}; Path=/; HttpOnly; Secure; SameSite=Lax`);
-        res.redirect('/dashboard');
-
-    } catch (err) {
-        console.error('OAuth Error:', err);
-        res.status(500).send('Ошибка авторизации.');
-    }
-});
-
-app.post('/api/update-track', async (req, res) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    const { track } = req.body;
-
-    if (!token || !track) return res.status(400).send('Bad request');
-
-    const tokenData = await validateToken(token);
-    if (!tokenData) return res.status(401).send('Unauthorized: Invalid token');
-
-    try {
-        await pool.query(
-            `UPDATE users SET last_updated = $1 WHERE user_id = $2`,
-            [new Date().toLocaleString('ru-RU'), tokenData.userId]
-        );
-    } catch (err) {
-        console.error('Ошибка обновления трека в базе:', err);
-    }
-
-    currentMusic[tokenData.username] = track;
-    res.send('OK');
-});
-
-app.get('/api/track', (req, res) => {
-    const channel = req.query.channel;
-    if (!channel) return res.status(400).send('Missing channel');
-    const track = currentMusic[channel.toLowerCase()] || 'Музыка не играет';
-    res.send(track);
-});
-
-app.get('/api/ping', (req, res) => {
-    res.status(200).send('PONG');
-});
-
-app.use(express.static(path.join(__dirname, 'public')));
-
-app.get(['/download/script', '/download/avetracker.user.js'], (req, res) => {
-    const filePath = path.join(__dirname, 'public', 'downloads', 'avetracker.user.js');
-    res.setHeader('Content-Type', 'application/x-userscript-js; charset=utf-8');
-    res.setHeader('Content-Disposition', 'inline; filename="avetracker.user.js"');
-    res.sendFile(filePath);
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Hub running on port ${PORT}`));
+            if (existing.rows.length >
