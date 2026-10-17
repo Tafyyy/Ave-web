@@ -61,7 +61,6 @@ const currentMusic = {};
 // КРИПТОГРАФИЯ И ТОКЕНЫ
 // ==========================================
 
-// Генерация безопасного токена
 function createSecureToken(userId, username, salt = 'v1') {
     const data = `${userId}|${username}|${salt}`;
     const hmac = crypto.createHmac('sha256', TOKEN_SECRET).update(data).digest('hex').substring(0, 24);
@@ -69,7 +68,6 @@ function createSecureToken(userId, username, salt = 'v1') {
     return `ave_${encoded}_${hmac}`;
 }
 
-// Проверка токена по базе данных (активный или предыдущий)
 async function validateToken(token) {
     if (!token || !token.startsWith('ave_')) return null;
     const parts = token.split('_');
@@ -96,7 +94,6 @@ async function validateToken(token) {
     return null;
 }
 
-// Быстрый парсинг токена без запроса в БД
 function parseSecureToken(token) {
     if (!token || !token.startsWith('ave_')) return null;
     const parts = token.split('_');
@@ -116,7 +113,6 @@ function parseSecureToken(token) {
     return null;
 }
 
-// Вспомогательная функция для чтения кук из запроса
 function getCookies(req) {
     const list = {};
     const cookieHeader = req.headers.cookie;
@@ -240,8 +236,9 @@ app.get('/', async (req, res) => {
                     <div class="section">
                         <h2>Центр загрузок</h2>
                         <div>
-                            <a href="/download/avetracker.exe" class="btn">Скачать AVETRACKER.exe</a>
-                            <a href="/download/avetracker.user.js" class="btn btn-secondary">Установить UserScript</a>
+                            <!-- Ссылки ведут на ваши релизы GitHub -->
+                            <a href="https://github.com/Tafyyy/Ave-web/releases/latest/download/avetracker.exe" class="btn" target="_blank">Скачать AVETRACKER.exe</a>
+                            <a href="https://github.com/Tafyyy/Ave-web/releases/latest/download/avetracker.user.js" class="btn btn-secondary" target="_blank">Установить UserScript</a>
                         </div>
                         <div>
                             <span class="info-link" onclick="toggleInstruction()">📖 Инструкция по установке и настройке</span>
@@ -413,7 +410,6 @@ app.get('/dashboard', async (req, res) => {
     `);
 });
 
-// Кнопка ручного сброса/перегенерации токена
 app.get('/regenerate-token', async (req, res) => {
     if (!req.session.userId) {
         const cookies = getCookies(req);
@@ -453,7 +449,6 @@ app.get('/regenerate-token', async (req, res) => {
     res.redirect('/dashboard');
 });
 
-// Админ-панель
 app.get('/admin', async (req, res) => {
     const key = req.query.key;
     if (key !== ADMIN_SECRET_KEY) {
@@ -577,7 +572,6 @@ app.get('/admin', async (req, res) => {
     `);
 });
 
-// Выход из аккаунта (очистка сессии и кук)
 app.get('/logout', (req, res) => {
     req.session.destroy(() => {
         res.setHeader('Set-Cookie', 'avetracker_token=; Max-Age=0; Path=/; HttpOnly; Secure');
@@ -667,10 +661,9 @@ app.get('/auth/twitch/callback', async (req, res) => {
 
 
 // ==========================================
-// API ДЛЯ ПРИЛОЖЕНИЯ, РАСШИРЕНИЯ И ЧАТА
+// API ДЛЯ ПРИЛОЖЕНИЯ И ЧАТА
 // ==========================================
 
-// Обновление играющего трека (принимает токен в заголовке Authorization)
 app.post('/api/update-track', async (req, res) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -694,7 +687,6 @@ app.post('/api/update-track', async (req, res) => {
     res.send('OK');
 });
 
-// Отдача трека для StreamElements
 app.get('/api/track', (req, res) => {
     const channel = req.query.channel;
     if (!channel) return res.status(400).send('Missing channel');
@@ -702,39 +694,15 @@ app.get('/api/track', (req, res) => {
     res.send(track);
 });
 
-// Пинг-проверка работоспособности сервера
 app.get('/api/ping', (req, res) => {
     res.status(200).send('PONG');
 });
 
 
 // ==========================================
-// СТАТИКА И СКАЧИВАНИЕ ФАЙЛОВ (.exe и .user.js)
+// СТАТИКА (Маршруты для локальной статики сайта, если есть)
 // ==========================================
-
-// Подключаем раздачу статических файлов из папки public
 app.use(express.static(path.join(__dirname, 'public')));
-
-// Скачивание десктопного приложения AVETRACKER.exe
-app.get('/download/avetracker.exe', (req, res) => {
-    const filePath = path.join(__dirname, 'public', 'downloads', 'avetracker.exe');
-    res.download(filePath, 'avetracker.exe', (err) => {
-        if (err) {
-            console.error('Ошибка скачивания файла .exe:', err);
-            if (!res.headersSent) {
-                res.status(404).send('Файл не найден на сервере.');
-            }
-        }
-    });
-});
-
-// Установка пользовательского скрипта UserScript
-app.get(['/download/script', '/download/avetracker.user.js'], (req, res) => {
-    const filePath = path.join(__dirname, 'public', 'downloads', 'avetracker.user.js');
-    res.setHeader('Content-Type', 'application/x-userscript-js; charset=utf-8');
-    res.setHeader('Content-Disposition', 'inline; filename="avetracker.user.js"');
-    res.sendFile(filePath);
-});
 
 
 // ==========================================

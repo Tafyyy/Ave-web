@@ -1,0 +1,28 @@
+name: Auto Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Скрипт сработает автоматически, когда вы запушите новый тег версии (например, git tag v1.0.1 && git push --tags)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Дает право GitHub Actions создавать релизы в вашем репозитории
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create GitHub Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            public/downloads/avetracker.exe
+            public/downloads/avetracker.user.js
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
