@@ -262,15 +262,19 @@ app.get('/dashboard', async (req, res) => {
 
 // Кнопка ручного сброса токена
 app.get('/regenerate-token', async (req, res) => {
-    const cookies = getCookies(req);
-    let tokenData = await validateToken(cookies.avetracker_token);
-    
-    if (!req.session.userId && tokenData) {
-        req.session.userId = tokenData.userId;
-        req.session.username = tokenData.username;
+    // Если в сессии нет userId, попробуем достать его из куки напрямую через парсер
+    if (!req.session.userId) {
+        const cookies = getCookies(req);
+        const tokenData = parseSecureToken(cookies.avetracker_token);
+        if (tokenData) {
+            req.session.userId = tokenData.userId;
+            req.session.username = tokenData.username;
+        }
     }
 
-    if (!req.session.userId) return res.redirect('/');
+    if (!req.session.userId) {
+        return res.redirect('/');
+    }
     
     // Генерируем уникальную новую соль
     const newSalt = 'v_' + Date.now().toString(36);
@@ -281,7 +285,7 @@ app.get('/regenerate-token', async (req, res) => {
 
     // Сдвигаем текущий активный токен в предыдущий, а новый записываем как active_token
     try {
-        await pool.query(`
+        const updateRes = await pool.query(`
             UPDATE users 
             SET 
                 previous_token = active_token,
@@ -289,7 +293,10 @@ app.get('/regenerate-token', async (req, res) => {
                 salt = $2,
                 last_updated = $3
             WHERE user_id = $4
+            RETURNING *;
         `, [newToken, newSalt, new Date().toLocaleString('ru-RU'), req.session.userId]);
+
+        console.log('Результат обновления токена в БД:', updateRes.rowCount > 0 ? 'Успешно' : 'Пользователь не найден в БД!');
     } catch (err) {
         console.error('Ошибка при пересоздании токена в базе:', err);
     }
