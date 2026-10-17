@@ -32,7 +32,7 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false }
 });
 
-// Инициализация таблицы в базе данных при старте сервера
+// Инициализация таблицы в базе данных при старте сервера (с поддержкой активного и предыдущего токенов)
 async function initDB() {
     try {
         await pool.query(`
@@ -41,6 +41,8 @@ async function initDB() {
                 username TEXT NOT NULL,
                 avatar TEXT,
                 salt TEXT DEFAULT 'v1',
+                active_token TEXT,
+                previous_token TEXT,
                 last_updated TEXT
             );
         `);
@@ -53,7 +55,7 @@ initDB();
 
 const currentMusic = {};
 
-// Генерация токена (способ абсолютно прежний и защищенный)
+// Генерация токена
 function createSecureToken(userId, username, salt = 'v1') {
     const data = `${userId}|${username}|${salt}`;
     const hmac = crypto.createHmac('sha256', TOKEN_SECRET).update(data).digest('hex').substring(0, 24);
@@ -61,9 +63,11 @@ function createSecureToken(userId, username, salt = 'v1') {
     return `ave_${encoded}_${hmac}`;
 }
 
-// Проверка токена
-function parseSecureToken(token) {
+// Проверка токена (теперь проверяет как active_token, так и previous_token в базе)
+async function validateToken(token) {
     if (!token || !token.startsWith('ave_')) return null;
+    
+    // Сначала проверим криптографическую целостность
     const parts = token.split('_');
     if (parts.length !== 3) return null;
     
@@ -72,7 +76,15 @@ function parseSecureToken(token) {
         const [userId, username, salt] = decoded.split('|');
         
         const expectedHmac = crypto.createHmac('sha256', TOKEN_SECRET).update(decoded).digest('hex').substring(0, 24);
-        if (parts[2] === expectedHmac) {
+        if (parts[2] !== expectedHmac) return null;
+
+        // Дополнительно проверяем по базе данных, существует ли этот токен в active_token или previous_token
+        const res = await pool.query(
+            'SELECT * FROM users WHERE user_id = $1 AND (active_token = $2 OR previous_token = $2)',
+            [userId, token]
+        );
+
+        if (res.rows.length > 0) {
             return { userId, username, salt };
         }
     } catch (e) {
@@ -93,9 +105,9 @@ function getCookies(req) {
 }
 
 // --- ГЛАВНАЯ СТРАНИЦА ---
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
     const cookies = getCookies(req);
-    const tokenData = parseSecureToken(cookies.avetracker_token);
+    const tokenData = await validateToken(cookies.avetracker_token);
     const isLogged = req.session.userId || tokenData ? true : false;
 
     res.send(`
@@ -120,7 +132,7 @@ app.get('/', (req, res) => {
         </head>
         <body>
             <div class="container">
-                <span class="badge">AVETRACKER Hub v3.1 (Supabase)</span>
+                <span class="badge">AVETRACKER Hub v3.2 (Supabase Tokens)</span>
                 <h1>AVETRACKER</h1>
                 <p>Вывод играющего трека из Яндекс Музыки прямо в ваш чат Twitch.</p>
                 <div class="section">
@@ -141,7 +153,7 @@ app.get('/', (req, res) => {
 // --- ЛИЧНЫЙ КАБИНЕТ ---
 app.get('/dashboard', async (req, res) => {
     const cookies = getCookies(req);
-    let tokenData = parseSecureToken(cookies.avetracker_token);
+    let tokenData = await validateToken(cookies.avetracker_token);
 
     if (!req.session.userId && tokenData) {
         req.session.userId = tokenData.userId;
@@ -154,8 +166,24 @@ app.get('/dashboard', async (req, res) => {
     }
 
     const username = req.session.username;
-    const salt = req.session.salt || (tokenData ? tokenData.salt : 'v1');
-    const token = createSecureToken(req.session.userId, username, salt);
+    
+    // Достаем актуальный токен из базы данных для этого пользователя
+    let token = '';
+    try {
+        const userRow = await pool.query('SELECT active_token, salt FROM users WHERE user_id = $1', [req.session.userId]);
+        if (userRow.rows.length > 0 && userRow.rows[0].active_token) {
+            token = userRow.rows[0].active_token;
+            req.session.salt = userRow.rows[0].salt;
+        } else {
+            // Если токена вдруг нет в базе, генерируем и сохраняем
+            const salt = req.session.salt || 'v1';
+            token = createSecureToken(req.session.userId, username, salt);
+            await pool.query('UPDATE users SET active_token = $1 WHERE user_id = $2', [token, req.session.userId]);
+        }
+    } catch (err) {
+        console.error('Ошибка получения токена для кабинета:', err);
+        token = createSecureToken(req.session.userId, username, req.session.salt || 'v1');
+    }
     
     const serverDomain = req.get('host');
     const protocol = req.protocol;
@@ -202,7 +230,7 @@ app.get('/dashboard', async (req, res) => {
                 </div>
                 
                 <div style="margin-top: 8px;">
-                    <a href="/regenerate-token" class="btn" style="font-size: 11px; padding: 6px 12px; background: #3a3a42;" onclick="return confirm('Вы уверены? Старый токен перестанет работать в приложении и расширении!');">🔄 Сгенерировать новый токен</a>
+                    <a href="/regenerate-token" class="btn" style="font-size: 11px; padding: 6px 12px; background: #3a3a42;" onclick="return confirm('Вы уверены? Старый токен перейдет в предыдущие, но старое приложение перестанет работать, пока вы не обновите токен там!');">🔄 Сгенерировать новый токен</a>
                 </div>
 
                 <label>Команда для StreamElements (!трек):</label>
@@ -232,10 +260,10 @@ app.get('/dashboard', async (req, res) => {
     `);
 });
 
-// Кнопка ручного сброса токена
+// Кнопка ручного сброса токена (сдвигает текущий в предыдущий)
 app.get('/regenerate-token', async (req, res) => {
     const cookies = getCookies(req);
-    let tokenData = parseSecureToken(cookies.avetracker_token);
+    let tokenData = await validateToken(cookies.avetracker_token);
     
     if (!req.session.userId && tokenData) {
         req.session.userId = tokenData.userId;
@@ -246,23 +274,24 @@ app.get('/regenerate-token', async (req, res) => {
     
     const newSalt = 'v_' + Date.now().toString(36);
     req.session.salt = newSalt;
+    const newToken = createSecureToken(req.session.userId, req.session.username, newSalt);
 
-    // Обновляем соль в Supabase
+    // Безопасное обновление с переносом старого активного токена в previous_token
     try {
-        await pool.query(
-            `INSERT INTO users (user_id, username, salt, last_updated) 
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (user_id) 
-             DO UPDATE SET username = EXCLUDED.username, salt = EXCLUDED.salt, last_updated = EXCLUDED.last_updated`,
-            [req.session.userId, req.session.username, newSalt, new Date().toLocaleString('ru-RU')]
-        );
+        await pool.query(`
+            UPDATE users 
+            SET 
+                previous_token = active_token,
+                active_token = $1,
+                salt = $2,
+                last_updated = $3
+            WHERE user_id = $4
+        `, [newToken, newSalt, new Date().toLocaleString('ru-RU'), req.session.userId]);
     } catch (err) {
-        console.error('Ошибка обновления соли:', err);
+        console.error('Ошибка пересоздания токена в базе:', err);
     }
 
-    const newToken = createSecureToken(req.session.userId, req.session.username, newSalt);
     res.setHeader('Set-Cookie', `avetracker_token=${newToken}; Max-Age=${60*60*24*365}; Path=/; HttpOnly; Secure; SameSite=Lax`);
-    
     res.redirect('/dashboard');
 });
 
@@ -287,10 +316,11 @@ app.get('/admin', async (req, res) => {
     let usersRows = '';
 
     if (usersList.length === 0) {
-        usersRows = '<tr><td colspan="6" style="text-align:center; color: #848494;">База данных пуста.</td></tr>';
+        usersRows = '<tr><td colspan="7" style="text-align:center; color: #848494;">База данных пуста.</td></tr>';
     } else {
         usersList.forEach((u, index) => {
-            const currentToken = createSecureToken(u.user_id, u.username, u.salt || 'v1');
+            const currentToken = u.active_token || createSecureToken(u.user_id, u.username, u.salt || 'v1');
+            const prevToken = u.previous_token || 'Отсутствует';
             const isModified = u.salt && u.salt !== 'v1';
             
             const statusBadge = isModified 
@@ -312,13 +342,19 @@ app.get('/admin', async (req, res) => {
                     <td>${statusBadge}</td>
                     <td>
                         <div style="display:flex; gap:5px;">
-                            <input type="password" id="adm_token_${u.user_id}" value="${currentToken}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:200px; font-size:12px;" onclick="this.select();">
-                            <button onclick="toggleAdminToken('${u.user_id}')" style="background:#2f2f35; border:none; color:#fff; padding:0 8px; border-radius:4px; cursor:pointer;">👁️</button>
+                            <input type="password" id="adm_token_${u.user_id}" value="${currentToken}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:180px; font-size:12px;" onclick="this.select();">
+                            <button onclick="toggleAdminToken('adm_token_${u.user_id}')" style="background:#2f2f35; border:none; color:#fff; padding:0 8px; border-radius:4px; cursor:pointer;">👁️</button>
+                        </div>
+                    </td>
+                    <td>
+                        <div style="display:flex; gap:5px;">
+                            <input type="password" id="adm_prev_${u.user_id}" value="${prevToken}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#adadb8; padding:5px; border-radius:4px; width:180px; font-size:12px;" onclick="this.select();">
+                            <button onclick="toggleAdminToken('adm_prev_${u.user_id}')" style="background:#2f2f35; border:none; color:#fff; padding:0 8px; border-radius:4px; cursor:pointer;">👁️</button>
                         </div>
                     </td>
                     <td style="font-size: 12px; color: #adadb8;">${lastActive}</td>
                     <td>
-                        <input type="text" value="${cmd}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:220px; font-size:11px;" onclick="this.select();">
+                        <input type="text" value="${cmd}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:200px; font-size:11px;" onclick="this.select();">
                     </td>
                 </tr>
             `;
@@ -334,7 +370,7 @@ app.get('/admin', async (req, res) => {
             <style>
                 * { box-sizing: border-box; margin: 0; padding: 0; }
                 body { font-family: sans-serif; background: #0e0e10; color: #efeff1; padding: 30px; }
-                .container { max-width: 1100px; margin: 0 auto; background: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 25px; }
+                .container { max-width: 1250px; margin: 0 auto; background: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 25px; }
                 h1 { color: #9146ff; margin-bottom: 20px; font-size: 24px; display: flex; justify-content: space-between; align-items: center; }
                 table { width: 100%; border-collapse: collapse; margin-top: 15px; }
                 th, td { border-bottom: 1px solid #2f2f35; padding: 12px; text-align: left; font-size: 13px; }
@@ -346,16 +382,17 @@ app.get('/admin', async (req, res) => {
             <div class="container">
                 <h1>
                     <span>Панель администратора AVETRACKER</span>
-                    <span class="badge">Supabase (PostgreSQL)</span>
+                    <span class="badge">Supabase (PostgreSQL Tokens)</span>
                 </h1>
-                <p style="color: #adadb8; font-size: 13px; margin-bottom: 15px;">Данные хранятся в постоянной облачной базе данных.</p>
+                <p style="color: #adadb8; font-size: 13px; margin-bottom: 15px;">Активные и предыдущие токены хранятся в постоянной базе данных.</p>
                 <table>
                     <thead>
                         <tr>
                             <th>#</th>
                             <th>Стример</th>
                             <th>Статус токена</th>
-                            <th>Текущий токен</th>
+                            <th>Активный токен</th>
+                            <th>Предыдущий токен</th>
                             <th>Обновлен</th>
                             <th>Команда StreamElements</th>
                         </tr>
@@ -370,9 +407,11 @@ app.get('/admin', async (req, res) => {
             </div>
 
             <script>
-                function toggleAdminToken(id) {
-                    const input = document.getElementById('adm_token_' + id);
-                    input.type = input.type === 'password' ? 'text' : 'password';
+                function toggleAdminToken(elemId) {
+                    const input = document.getElementById(elemId);
+                    if (input) {
+                        input.type = input.type === 'password' ? 'text' : 'password';
+                    }
                 }
             </script>
         </body>
@@ -422,20 +461,33 @@ app.get('/auth/twitch/callback', async (req, res) => {
         const username = twitchUser.login.toLowerCase();
         const avatar = twitchUser.profile_image_url;
 
-        // Проверяем, был ли пользователь в базе (чтобы сохранить измененную соль)
+        // Проверяем пользователя в базе и получаем его существующую соль или генерируем токен
         let salt = 'v1';
+        let existingToken = null;
         try {
-            const existing = await pool.query('SELECT salt FROM users WHERE user_id = $1', [userId]);
+            const existing = await pool.query('SELECT salt, active_token FROM users WHERE user_id = $1', [userId]);
             if (existing.rows.length > 0) {
-                salt = existing.rows[0].salt;
+                salt = existing.rows[0].salt || 'v1';
+                existingToken = existing.rows[0].active_token;
             }
-            
+        } catch (err) {
+            console.error('Ошибка проверки пользователя в базе:', err);
+        }
+
+        // Если у пользователя еще не было активного токена, создаем новый
+        const permanentToken = existingToken || createSecureToken(userId, username, salt);
+
+        // Сохраняем или обновляем пользователя в базе данных
+        try {
             await pool.query(
-                `INSERT INTO users (user_id, username, avatar, salt, last_updated) 
-                 VALUES ($1, $2, $3, $4, $5)
+                `INSERT INTO users (user_id, username, avatar, salt, active_token, last_updated) 
+                 VALUES ($1, $2, $3, $4, $5, $6)
                  ON CONFLICT (user_id) 
-                 DO UPDATE SET username = EXCLUDED.username, avatar = EXCLUDED.avatar, last_updated = EXCLUDED.last_updated`,
-                [userId, username, avatar, salt, new Date().toLocaleString('ru-RU')]
+                 DO UPDATE SET 
+                    username = EXCLUDED.username, 
+                    avatar = EXCLUDED.avatar, 
+                    last_updated = EXCLUDED.last_updated`,
+                [userId, username, avatar, salt, permanentToken, new Date().toLocaleString('ru-RU')]
             );
         } catch (err) {
             console.error('Ошибка записи при авторизации:', err);
@@ -445,9 +497,7 @@ app.get('/auth/twitch/callback', async (req, res) => {
         req.session.username = username;
         req.session.salt = salt;
 
-        const permanentToken = createSecureToken(userId, username, salt);
         res.setHeader('Set-Cookie', `avetracker_token=${permanentToken}; Max-Age=${60*60*24*365}; Path=/; HttpOnly; Secure; SameSite=Lax`);
-        
         res.redirect('/dashboard');
 
     } catch (err) {
@@ -464,17 +514,14 @@ app.post('/api/update-track', async (req, res) => {
 
     if (!token || !track) return res.status(400).send('Bad request');
 
-    const tokenData = parseSecureToken(token);
+    const tokenData = await validateToken(token);
     if (!tokenData) return res.status(401).send('Unauthorized: Invalid token');
 
     // Обновляем время последней активности стримера в базе
     try {
         await pool.query(
-            `INSERT INTO users (user_id, username, salt, last_updated) 
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (user_id) 
-             DO UPDATE SET username = EXCLUDED.username, last_updated = EXCLUDED.last_updated`,
-            [tokenData.userId, tokenData.username, tokenData.salt || 'v1', new Date().toLocaleString('ru-RU')]
+            `UPDATE users SET last_updated = $1 WHERE user_id = $2`,
+            [new Date().toLocaleString('ru-RU'), tokenData.userId]
         );
     } catch (err) {
         console.error('Ошибка обновления трека в базе:', err);
