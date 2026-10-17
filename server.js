@@ -2,103 +2,54 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
 
 const app = express();
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Настройка сессий
 app.use(session({
     secret: 'avetracker_super_secret_session_key_123',
     resave: false,
     saveUninitialized: false
 }));
 
-// Настройки Twitch OAuth
 const TWITCH_CLIENT_ID = 'e2g9rcwz8ti2ivthv2g64tyziqel21';
 const TWITCH_CLIENT_SECRET = '4xnnc64vn27lvjlq1436ivp6qhji6d';
 const REDIRECT_URI = 'https://avetracker-hub.onrender.com/auth/twitch/callback';
 
-// Секретный ключ для криптографической подписи токенов (не меняйте его, иначе токены сбросятся)
-const TOKEN_SECRET = 'avetracker_secure_hmac_secret_key_999';
+// Секретный ключ для доступа к вашей админ-панели (можете изменить)
+const ADMIN_SECRET_KEY = 'my_super_secret_admin_avekey_777';
 
+// Файл базы данных пользователей
+const USERS_FILE = path.join(__dirname, 'users.json');
+
+function loadUsers() {
+    if (fs.existsSync(USERS_FILE)) {
+        try {
+            return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+        } catch (e) {
+            console.error('Ошибка чтения users.json:', e);
+        }
+    }
+    return {};
+}
+
+function saveUsers(users) {
+    try {
+        fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 4), 'utf8');
+    } catch (e) {
+        console.error('Ошибка записи users.json:', e);
+    }
+}
+
+let usersDB = loadUsers();
 const currentMusic = {};
 
-// --- КРИПТОГРАФИЧЕСКИЕ ТОКЕНЫ (Без баз данных и файлов) ---
-
-// Генерация постоянного токена, в который зашит userId и username
-function generateToken(userId, username) {
-    const payload = `${userId}:${username}`;
-    const hmac = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('hex').substring(0, 24);
-    return `ave_${userId}_${hmac}`;
-}
-
-// Проверка и расшифровка токена
-function verifyToken(token) {
-    if (!token || !token.startsWith('ave_')) return null;
-    const parts = token.split('_');
-    if (parts.length < 3) return null;
-    
-    const userId = parts[1];
-    
-    // Нам нужно найти пользователя по userId (восстанавливаем из токена)
-    // Но так как у нас нет базы, проверим подпись со всеми известными никами или восстановим из куки.
-    // Упростим: зашием в токен формат ave_userId_username_hmac
-    return null; // используем расширенный формат ниже
-}
-
-// Надежный генератор с зашифрованным ником
-function createSecureToken(userId, username) {
-    const data = `${userId}|${username}`;
-    const hmac = crypto.createHmac('sha256', TOKEN_SECRET).update(data).digest('hex').substring(0, 20);
-    // Кодируем в base64url чтобы избежать проблем с символами
-    const encoded = Buffer.from(data).toString('base64url');
-    return `ave_${encoded}_${hmac}`;
-}
-
-function parseSecureToken(token) {
-    if (!token || !token.startsWith('ave_')) return null;
-    const parts = token.split('_');
-    if (parts.length !== 3) return null;
-    
-    const encoded = parts[1];
-    const receivedHmac = parts[2];
-    
-    try {
-        const decoded = Buffer.from(encoded, 'base64url').toString('utf8');
-        const [userId, username] = decoded.split('|');
-        
-        // Проверяем подпись
-        const expectedHmac = crypto.createHmac('sha256', TOKEN_SECRET).update(decoded).digest('hex').substring(0, 20);
-        if (receivedHmac === expectedHmac) {
-            return { userId, username };
-        }
-    } catch (e) {
-        return null;
-    }
-    return null;
-}
-
-// Вспомогательная функция чтения кук из запроса
-function getCookies(req) {
-    const list = {};
-    const cookieHeader = req.headers.cookie;
-    if (!cookieHeader) return list;
-    cookieHeader.split(`;`).forEach(cookie => {
-        const [name, ...rest] = cookie.split(`=`);
-        list[name.trim()] = decodeURIComponent(rest.join(`=`));
-    });
-    return list;
-}
-
-// --- МАРШРУТЫ САЙТА ---
-
+// --- ГЛАВНАЯ СТРАНИЦА ---
 app.get('/', (req, res) => {
-    // Проверяем сессию или куки
-    const cookies = getCookies(req);
-    const tokenData = parseSecureToken(cookies.avetracker_token);
-    const isLogged = req.session.userId || tokenData ? true : false;
+    const isLogged = req.session.userId && usersDB[req.session.userId] ? true : false;
 
     res.send(`
         <!DOCTYPE html>
@@ -122,7 +73,7 @@ app.get('/', (req, res) => {
         </head>
         <body>
             <div class="container">
-                <span class="badge">AVETRACKER Hub v2.2</span>
+                <span class="badge">AVETRACKER Hub v2.4</span>
                 <h1>AVETRACKER</h1>
                 <p>Вывод играющего трека из Яндекс Музыки прямо в ваш чат Twitch.</p>
                 <div class="section">
@@ -140,28 +91,17 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Личный кабинет с автоматическим восстановлением сессии из куки
+// --- ЛИЧНЫЙ КАБИНЕТ ---
 app.get('/dashboard', (req, res) => {
-    const cookies = getCookies(req);
-    
-    // Если сессия пустая, но есть защищенный токен в куках — автоматически восстанавливаем сессию!
-    if (!req.session.userId && cookies.avetracker_token) {
-        const tokenData = parseSecureToken(cookies.avetracker_token);
-        if (tokenData) {
-            req.session.userId = tokenData.userId;
-            req.session.username = tokenData.username;
-        }
-    }
-
-    if (!req.session.userId) {
+    usersDB = loadUsers();
+    if (!req.session.userId || !usersDB[req.session.userId]) {
         return res.redirect('/auth/twitch');
     }
 
-    const username = req.session.username;
-    const token = cookies.avetracker_token;
+    const user = usersDB[req.session.userId];
     const serverDomain = req.get('host');
     const protocol = req.protocol;
-    const streamElementsCommand = `\$(customapi ${protocol}://${serverDomain}/api/track?channel=${username})`;
+    const streamElementsCommand = `\$(customapi ${protocol}://${serverDomain}/api/track?channel=${user.username})`;
 
     res.send(`
         <!DOCTYPE html>
@@ -174,15 +114,17 @@ app.get('/dashboard', (req, res) => {
                 body { font-family: sans-serif; background: #0e0e10; color: #efeff1; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
                 .container { background: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 30px; max-width: 550px; width: 100%; text-align: left; }
                 .profile-header { display: flex; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #2f2f35; padding-bottom: 15px; }
+                .avatar { width: 50px; height: 50px; border-radius: 50%; margin-right: 15px; border: 2px solid #9146ff; }
                 h2 { color: #fff; font-size: 22px; }
                 .subtext { color: #adadb8; font-size: 13px; }
                 label { display: block; color: #bf94ff; font-size: 13px; font-weight: bold; margin-bottom: 5px; margin-top: 15px; }
-                input { width: 100%; background: #0e0e10; border: 1px solid #2f2f35; color: #efeff1; padding: 10px; border-radius: 6px; font-size: 14px; outline: none; }
+                .input-group { display: flex; gap: 8px; }
+                input { flex: 1; background: #0e0e10; border: 1px solid #2f2f35; color: #efeff1; padding: 10px; border-radius: 6px; font-size: 14px; outline: none; }
+                .btn-toggle { background: #2f2f35; border: 1px solid #3a3a42; color: #efeff1; padding: 0 14px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+                .btn-toggle:hover { background: #3a3a42; }
                 .actions { margin-top: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
                 .btn { display: inline-block; background: #2f2f35; color: white; padding: 10px 15px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 13px; text-align: center; border: none; cursor: pointer; }
                 .btn:hover { background: #3a3a42; }
-                .btn-primary { background: #9146ff; }
-                .btn-primary:hover { background: #772ce8; }
                 .btn-danger { background: #eb0400; }
                 .btn-danger:hover { background: #c20300; }
             </style>
@@ -190,15 +132,22 @@ app.get('/dashboard', (req, res) => {
         <body>
             <div class="container">
                 <div class="profile-header">
+                    <img src="${user.avatar}" alt="Avatar" class="avatar">
                     <div>
-                        <h2>${username}</h2>
-                        <span class="subtext">Авторизован через Twitch (Постоянный токен)</span>
+                        <h2>${user.username}</h2>
+                        <span class="subtext">Авторизован через Twitch</span>
                     </div>
                 </div>
 
-                <label>Ваш постоянный защищенный токен:</label>
-                <input type="text" value="${token}" readonly onclick="this.select();">
-                <p style="color: #848494; font-size: 11px; margin-top: 5px;">Этот токен никогда не изменится и не сбросится при перезагрузке сервера.</p>
+                <label>Ваш постоянный токен:</label>
+                <div class="input-group">
+                    <input type="password" id="tokenInput" value="${user.token}" readonly onclick="this.select();">
+                    <button class="btn-toggle" onclick="toggleTokenVisibility()">👁️ Показать</button>
+                </div>
+                
+                <div style="margin-top: 8px;">
+                    <a href="/regenerate-token" class="btn" style="font-size: 11px; padding: 6px 12px; background: #3a3a42;" onclick="return confirm('Вы уверены? Старый токен перестанет работать в приложении и расширении!');">🔄 Сгенерировать новый токен</a>
+                </div>
 
                 <label>Команда для StreamElements (!трек):</label>
                 <input type="text" value="${streamElementsCommand}" readonly onclick="this.select();">
@@ -208,21 +157,139 @@ app.get('/dashboard', (req, res) => {
                     <a href="/logout" class="btn btn-danger">Выйти</a>
                 </div>
             </div>
+
+            <script>
+                function toggleTokenVisibility() {
+                    const input = document.getElementById('tokenInput');
+                    const btn = event.target;
+                    if (input.type === 'password') {
+                        input.type = 'text';
+                        btn.textContent = '🙈 Скрыть';
+                    } else {
+                        input.type = 'password';
+                        btn.textContent = '👁️ Показать';
+                    }
+                }
+            </script>
         </body>
         </html>
     `);
 });
 
+// --- СЕКРЕТНАЯ АДМИН-ПАНЕЛЬ ДЛЯ ВАС ---
+app.get('/admin', (req, res) => {
+    const key = req.query.key;
+    if (key !== ADMIN_SECRET_KEY) {
+        return res.status(403).send('<h1>403 Forbidden</h1><p>Неверный секретный ключ администратора.</p>');
+    }
+
+    usersDB = loadUsers();
+    const serverDomain = req.get('host');
+    const protocol = req.protocol;
+
+    let usersRows = '';
+    const userIds = Object.keys(usersDB);
+
+    if (userIds.length === 0) {
+        usersRows = '<tr><td colspan="4" style="text-align:center; color: #848494;">База данных пока пуста (никто еще не авторизовался).</td></tr>';
+    } else {
+        userIds.forEach((id, index) => {
+            const u = usersDB[id];
+            const cmd = `\$(customapi ${protocol}://${serverDomain}/api/track?channel=${u.username})`;
+            usersRows += `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>
+                        <div style="display:flex; align-items:center; gap: 10px;">
+                            <img src="${u.avatar}" width="30" height="30" style="border-radius:50%;">
+                            <b>${u.username}</b><br><span style="font-size:11px; color:#848494;">ID: ${id}</span>
+                        </div>
+                    </td>
+                    <td>
+                        <div style="display:flex; gap:5px;">
+                            <input type="password" id="adm_token_${id}" value="${u.token}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:220px; font-size:12px;" onclick="this.select();">
+                            <button onclick="toggleAdminToken('${id}')" style="background:#2f2f35; border:none; color:#fff; padding:0 8px; border-radius:4px; cursor:pointer;">👁️</button>
+                        </div>
+                    </td>
+                    <td>
+                        <input type="text" value="${cmd}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:280px; font-size:11px;" onclick="this.select();">
+                    </td>
+                </tr>
+            `;
+        });
+    }
+
+    res.send(`
+        <!DOCTYPE html>
+        <html lang="ru">
+        <head>
+            <meta charset="UTF-8">
+            <title>Админ-панель - AVETRACKER</title>
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body { font-family: sans-serif; background: #0e0e10; color: #efeff1; padding: 30px; }
+                .container { max-width: 1000px; margin: 0 auto; background: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 25px; }
+                h1 { color: #9146ff; margin-bottom: 20px; font-size: 24px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+                th, td { border-bottom: 1px solid #2f2f35; padding: 12px; text-align: left; font-size: 14px; }
+                th { color: #bf94ff; font-size: 13px; }
+                .badge { background: rgba(145, 70, 255, 0.15); color: #bf94ff; padding: 3px 8px; border-radius: 8px; font-size: 11px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Панель администратора AVETRACKER <span class="badge">База стримеров</span></h1>
+                <p style="color: #adadb8; font-size: 13px; margin-bottom: 15px;">Здесь хранятся данные всех пользователей, которые вошли через Twitch. Вы можете скопировать токен или команду для настройки.</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Стример</th>
+                            <th>Постоянный токен</th>
+                            <th>Команда StreamElements</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${usersRows}
+                    </tbody>
+                </table>
+                <div style="margin-top: 20px;">
+                    <a href="/" style="color: #9146ff; text-decoration: none; font-size: 14px;">← На главную сайта</a>
+                </div>
+            </div>
+
+            <script>
+                function toggleAdminToken(id) {
+                    const input = document.getElementById('adm_token_' + id);
+                    if (input.type === 'password') {
+                        input.type = 'text';
+                    } else {
+                        input.type = 'password';
+                    }
+                }
+            </script>
+        </body>
+        </html>
+    `);
+});
+
+app.get('/regenerate-token', (req, res) => {
+    usersDB = loadUsers();
+    if (!req.session.userId || !usersDB[req.session.userId]) {
+        return res.redirect('/');
+    }
+    usersDB[req.session.userId].token = 'ave_' + crypto.randomBytes(24).toString('hex');
+    saveUsers(usersDB);
+    res.redirect('/dashboard');
+});
+
 app.get('/logout', (req, res) => {
     req.session.destroy(() => {
-        // Удаляем куку с токеном при выходе
-        res.setHeader('Set-Cookie', 'avetracker_token=; Max-Age=0; Path=/; HttpOnly; Secure');
         res.redirect('/');
     });
 });
 
 // --- TWITCH OAUTH ---
-
 app.get('/auth/twitch', (req, res) => {
     const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${TWITCH_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=user:read:email`;
     res.redirect(authUrl);
@@ -255,16 +322,26 @@ app.get('/auth/twitch/callback', async (req, res) => {
 
         const userId = twitchUser.id;
         const username = twitchUser.login.toLowerCase();
+        const avatar = twitchUser.profile_image_url;
 
-        // Создаем постоянный крипто-токен
-        const permanentToken = createSecureToken(userId, username);
+        usersDB = loadUsers();
 
-        // Сохраняем сессию
+        if (!usersDB[userId]) {
+            usersDB[userId] = {
+                username: username,
+                avatar: avatar,
+                token: 'ave_' + crypto.randomBytes(24).toString('hex')
+            };
+        } else {
+            usersDB[userId].username = username;
+            usersDB[userId].avatar = avatar;
+            if (!usersDB[userId].token) {
+                usersDB[userId].token = 'ave_' + crypto.randomBytes(24).toString('hex');
+            }
+        }
+
+        saveUsers(usersDB);
         req.session.userId = userId;
-        req.session.username = username;
-
-        // Сохраняем токен в долгую куку браузера (на 1 год)
-        res.setHeader('Set-Cookie', `avetracker_token=${permanentToken}; Max-Age=${60*60*24*365}; Path=/; HttpOnly; Secure; SameSite=Lax`);
         res.redirect('/dashboard');
 
     } catch (err) {
@@ -274,19 +351,18 @@ app.get('/auth/twitch/callback', async (req, res) => {
 });
 
 // --- API ДЛЯ ТРЕКЕРОВ ---
-
 app.post('/api/update-track', (req, res) => {
+    usersDB = loadUsers();
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     const { track } = req.body;
 
     if (!token || !track) return res.status(400).send('Bad request');
 
-    // Проверяем токен математически (без баз данных)
-    const tokenData = parseSecureToken(token);
-    if (!tokenData) return res.status(401).send('Unauthorized: Invalid token');
+    const user = Object.values(usersDB).find(u => u.token === token);
+    if (!user) return res.status(401).send('Unauthorized: Invalid token');
 
-    currentMusic[tokenData.username] = track;
+    currentMusic[user.username] = track;
     res.send('OK');
 });
 
@@ -295,11 +371,6 @@ app.get('/api/track', (req, res) => {
     if (!channel) return res.status(400).send('Missing channel');
     const track = currentMusic[channel.toLowerCase()] || 'Музыка не играет';
     res.send(track);
-});
-
-// Endpoint для предотвращения засыпания (Keep-Alive пинг)
-app.get('/api/ping', (req, res) => {
-    res.status(200).send('PONG');
 });
 
 // --- СТАТИКА ---
