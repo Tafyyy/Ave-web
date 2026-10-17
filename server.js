@@ -627,4 +627,118 @@ app.get('/auth/twitch/callback', async (req, res) => {
         let existingToken = null;
         try {
             const existing = await pool.query('SELECT salt, active_token FROM users WHERE user_id = $1', [userId]);
-            if (existing.rows.length >
+            if (existing.rows.length > 0) {
+                salt = existing.rows[0].salt || 'v1';
+                existingToken = existing.rows[0].active_token;
+            }
+        } catch (err) {
+            console.error('Ошибка проверки пользователя в базе:', err);
+        }
+
+        const permanentToken = existingToken || createSecureToken(userId, username, salt);
+
+        try {
+            await pool.query(
+                `INSERT INTO users (user_id, username, avatar, salt, active_token, last_updated) 
+                 VALUES ($1, $2, $3, $4, $5, $6)
+                 ON CONFLICT (user_id) 
+                 DO UPDATE SET 
+                    username = EXCLUDED.username, 
+                    avatar = EXCLUDED.avatar, 
+                    last_updated = EXCLUDED.last_updated`,
+                [userId, username, avatar, salt, permanentToken, new Date().toLocaleString('ru-RU')]
+            );
+        } catch (err) {
+            console.error('Ошибка записи при авторизации:', err);
+        }
+
+        req.session.userId = userId;
+        req.session.username = username;
+        req.session.salt = salt;
+
+        res.setHeader('Set-Cookie', `avetracker_token=${permanentToken}; Max-Age=${60*60*24*365}; Path=/; HttpOnly; Secure; SameSite=Lax`);
+        res.redirect('/dashboard');
+
+    } catch (err) {
+        console.error('OAuth Error:', err);
+        res.status(500).send('Ошибка авторизации.');
+    }
+});
+
+
+// ==========================================
+// API ДЛЯ ПРИЛОЖЕНИЯ, РАСШИРЕНИЯ И ЧАТА
+// ==========================================
+
+// Обновление играющего трека (принимает токен в заголовке Authorization)
+app.post('/api/update-track', async (req, res) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    const { track } = req.body;
+
+    if (!token || !track) return res.status(400).send('Bad request');
+
+    const tokenData = await validateToken(token);
+    if (!tokenData) return res.status(401).send('Unauthorized: Invalid token');
+
+    try {
+        await pool.query(
+            `UPDATE users SET last_updated = $1 WHERE user_id = $2`,
+            [new Date().toLocaleString('ru-RU'), tokenData.userId]
+        );
+    } catch (err) {
+        console.error('Ошибка обновления трека в базе:', err);
+    }
+
+    currentMusic[tokenData.username] = track;
+    res.send('OK');
+});
+
+// Отдача трека для StreamElements
+app.get('/api/track', (req, res) => {
+    const channel = req.query.channel;
+    if (!channel) return res.status(400).send('Missing channel');
+    const track = currentMusic[channel.toLowerCase()] || 'Музыка не играет';
+    res.send(track);
+});
+
+// Пинг-проверка работоспособности сервера
+app.get('/api/ping', (req, res) => {
+    res.status(200).send('PONG');
+});
+
+
+// ==========================================
+// СТАТИКА И СКАЧИВАНИЕ ФАЙЛОВ (.exe и .user.js)
+// ==========================================
+
+// Подключаем раздачу статических файлов из папки public
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Скачивание десктопного приложения AVETRACKER.exe
+app.get('/download/avetracker.exe', (req, res) => {
+    const filePath = path.join(__dirname, 'public', 'downloads', 'avetracker.exe');
+    res.download(filePath, 'avetracker.exe', (err) => {
+        if (err) {
+            console.error('Ошибка скачивания файла .exe:', err);
+            if (!res.headersSent) {
+                res.status(404).send('Файл не найден на сервере.');
+            }
+        }
+    });
+});
+
+// Установка пользовательского скрипта UserScript
+app.get(['/download/script', '/download/avetracker.user.js'], (req, res) => {
+    const filePath = path.join(__dirname, 'public', 'downloads', 'avetracker.user.js');
+    res.setHeader('Content-Type', 'application/x-userscript-js; charset=utf-8');
+    res.setHeader('Content-Disposition', 'inline; filename="avetracker.user.js"');
+    res.sendFile(filePath);
+});
+
+
+// ==========================================
+// ЗАПУСК СЕРВЕРА
+// ==========================================
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Hub running on port ${PORT}`));
