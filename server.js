@@ -15,11 +15,11 @@ app.use(session({
     saveUninitialized: false
 }));
 
-const TWITCH_CLIENT_ID = 'ВАШ_TWITCH_CLIENT_ID';
-const TWITCH_CLIENT_SECRET = 'ВАШ_TWITCH_CLIENT_SECRET';
+const TWITCH_CLIENT_ID = 'e2g9rcwz8ti2ivthv2g64tyziqel21';
+const TWITCH_CLIENT_SECRET = '4xnnc64vn27lvjlq1436ivp6qhji6d';
 const REDIRECT_URI = 'https://avetracker-hub.onrender.com/auth/twitch/callback';
 
-const ADMIN_SECRET_KEY = 'my_super_secret_admin_key_777';
+const ADMIN_SECRET_KEY = 'aveadminkeyPassword312';
 
 // Секретный ключ для вечных токенов. ВАЖНО: Никогда не меняйте эту строку!
 const TOKEN_SECRET = 'avetracker_eternal_secure_key_2026';
