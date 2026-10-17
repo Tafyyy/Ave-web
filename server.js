@@ -8,22 +8,22 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Эндпоинт для скачивания .exe файла
 app.get('/download/exe', (req, res) => {
-    const filePath = path.join(__dirname, 'public', 'downloads', 'AVETRACKER.exe');
-    res.download(filePath, 'AVETRACKER.exe', (err) => {
+    const filePath = path.join(__dirname, 'public', 'downloads', 'avetracker.exe');
+    res.download(filePath, 'avetracker.exe', (err) => {
         if (err) {
             console.error('Ошибка при скачивании EXE:', err);
-            res.status(404).send('Файл AVETRACKER.exe пока не загружен на сервер.');
+            res.status(404).send('Файл avetracker.exe не найден на сервере.');
         }
     });
 });
 
-// Эндпоинт для установки / скачивания UserScript
+// Эндпоинт для скачивания UserScript
 app.get('/download/script', (req, res) => {
     const filePath = path.join(__dirname, 'public', 'downloads', 'avetracker.user.js');
     res.download(filePath, 'avetracker.user.js', (err) => {
         if (err) {
             console.error('Ошибка при скачивании скрипта:', err);
-            res.status(404).send('Файл скрипта пока не загружен на сервер.');
+            res.status(404).send('Файл скрипта не найден на сервере.');
         }
     });
 });
@@ -142,5 +142,5 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
