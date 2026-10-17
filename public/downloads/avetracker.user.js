@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yandex Music StreamBridge (Twitch !трек)
 // @namespace    http://tampermonkey.net/
-// @version      3.0
+// @version      4.0
 // @description  Automatic transfer of the current track from Yandex Music to StreamElements bot on Twitch.
 // @description:ru Автоматическая передача текущего трека из Яндекс Музыки в чат-бота StreamElements на Twitch.
 // @author       Tafyyy
@@ -11,43 +11,41 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
-// @downloadURL https://update.greasyfork.org/scripts/600440/Yandex%20Music%20StreamBridge%20%28Twitch%20%21%D1%82%D1%80%D0%B5%D0%BA%29.user.js
-// @updateURL https://update.greasyfork.org/scripts/600440/Yandex%20Music%20StreamBridge%20%28Twitch%20%21%D1%82%D1%80%D0%B5%D0%BA%29.meta.js
 // ==/UserScript==
 
 (function() {
     'use strict';
 
-    // Адрес вашего сервера на Render
+    // Адрес вашего сервера-хаба на Render
     const BACKEND_URL = 'https://avetracker-hub.onrender.com/api/update-track';
 
-    // Получаем сохраненный ник из памяти браузера
-    let channelName = GM_getValue('twitch_channel', '');
+    // Получаем сохраненный токен из памяти браузера (Tampermonkey)
+    let userToken = GM_getValue('avetracker_token', '');
 
-    // Функция для запроса ника у стримера
-    function setupChannel() {
-        const input = prompt('Введите ваш ник на Twitch для работы команды !трек:', channelName);
+    // Функция для запроса токена у стримера
+    function setupToken() {
+        const input = prompt('Введите ваш персональный токен из личного кабинета AVETRACKER:', userToken);
         if (input && input.trim() !== '') {
-            channelName = input.trim().toLowerCase();
-            GM_setValue('twitch_channel', channelName);
-            alert('Ник успешно сохранен: ' + channelName);
+            userToken = input.trim();
+            GM_setValue('avetracker_token', userToken);
+            alert('Токен успешно сохранен!');
         } else {
-            alert('Ник не может быть пустым!');
+            alert('Токен не может быть пустым!');
         }
     }
 
-    // Добавляем пункт «Изменить ник Twitch» в меню расширения (если захочется поменять)
-    GM_registerMenuCommand('Изменить ник Twitch', setupChannel);
+    // Добавляем пункт «Изменить токен AVETRACKER» в меню расширения Tampermonkey
+    GM_registerMenuCommand('Изменить токен AVETRACKER', setupToken);
 
-    // Если ник еще не вводился, сразу показываем окно настройки
-    if (!channelName) {
-        setupChannel();
+    // Если токен еще не вводился, сразу показываем окно настройки
+    if (!userToken) {
+        setupToken();
     }
 
     let lastSentTrack = '';
 
     setInterval(() => {
-        if (!channelName) return;
+        if (!userToken) return;
 
         try {
             if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
@@ -65,11 +63,15 @@
                             method: "POST",
                             url: BACKEND_URL,
                             headers: {
-    				"Content-Type": "application/json",
-    				"Authorization": "Bearer ave_ваш_токен_из_сайта"},
-                            data: JSON.stringify({ channel: channelName, track: trackString }),
+                                "Content-Type": "application/json",
+                                "Authorization": "Bearer " + userToken // Передаем токен для авторизации
+                            },
+                            data: JSON.stringify({ track: trackString }), // Никнейм определяется на сервере по токену
                             onload: function(res) {
-                                console.log('[SE-Bridge] Трек отправлен для канала:', channelName);
+                                console.log('[AVETRACKER] Трек успешно отправлен:', trackString);
+                            },
+                            onerror: function(err) {
+                                console.error('[AVETRACKER] Ошибка отправки трека:', err);
                             }
                         });
                     }
