@@ -19,10 +19,11 @@ const TWITCH_CLIENT_ID = 'e2g9rcwz8ti2ivthv2g64tyziqel21';
 const TWITCH_CLIENT_SECRET = '4xnnc64vn27lvjlq1436ivp6qhji6d';
 const REDIRECT_URI = 'https://avetracker-hub.onrender.com/auth/twitch/callback';
 
-// Секретный ключ для доступа к вашей админ-панели (можете изменить)
-const ADMIN_SECRET_KEY = 'my_super_secret_admin_avekey_777';
+const ADMIN_SECRET_KEY = 'my_super_secret_admin_key_777';
 
-// Файл базы данных пользователей
+// Секретный ключ для вечных токенов. ВАЖНО: Никогда не меняйте эту строку!
+const TOKEN_SECRET = 'avetracker_eternal_secure_key_2026';
+
 const USERS_FILE = path.join(__dirname, 'users.json');
 
 function loadUsers() {
@@ -47,9 +48,50 @@ function saveUsers(users) {
 let usersDB = loadUsers();
 const currentMusic = {};
 
+// Генерация токена с поддержкой соли (позволяет менять токен вручную по кнопке)
+function createSecureToken(userId, username, salt = 'v1') {
+    const data = `${userId}|${username}|${salt}`;
+    const hmac = crypto.createHmac('sha256', TOKEN_SECRET).update(data).digest('hex').substring(0, 24);
+    const encoded = Buffer.from(data).toString('base64url');
+    return `ave_${encoded}_${hmac}`;
+}
+
+// Проверка токена
+function parseSecureToken(token) {
+    if (!token || !token.startsWith('ave_')) return null;
+    const parts = token.split('_');
+    if (parts.length !== 3) return null;
+    
+    try {
+        const decoded = Buffer.from(parts[1], 'base64url').toString('utf8');
+        const [userId, username, salt] = decoded.split('|');
+        
+        const expectedHmac = crypto.createHmac('sha256', TOKEN_SECRET).update(decoded).digest('hex').substring(0, 24);
+        if (parts[2] === expectedHmac) {
+            return { userId, username, salt };
+        }
+    } catch (e) {
+        return null;
+    }
+    return null;
+}
+
+function getCookies(req) {
+    const list = {};
+    const cookieHeader = req.headers.cookie;
+    if (!cookieHeader) return list;
+    cookieHeader.split(';').forEach(cookie => {
+        const [name, ...rest] = cookie.split('=');
+        list[name.trim()] = decodeURIComponent(rest.join('='));
+    });
+    return list;
+}
+
 // --- ГЛАВНАЯ СТРАНИЦА ---
 app.get('/', (req, res) => {
-    const isLogged = req.session.userId && usersDB[req.session.userId] ? true : false;
+    const cookies = getCookies(req);
+    const tokenData = parseSecureToken(cookies.avetracker_token);
+    const isLogged = req.session.userId || tokenData ? true : false;
 
     res.send(`
         <!DOCTYPE html>
@@ -73,7 +115,7 @@ app.get('/', (req, res) => {
         </head>
         <body>
             <div class="container">
-                <span class="badge">AVETRACKER Hub v2.4</span>
+                <span class="badge">AVETRACKER Hub v2.7</span>
                 <h1>AVETRACKER</h1>
                 <p>Вывод играющего трека из Яндекс Музыки прямо в ваш чат Twitch.</p>
                 <div class="section">
@@ -93,15 +135,26 @@ app.get('/', (req, res) => {
 
 // --- ЛИЧНЫЙ КАБИНЕТ ---
 app.get('/dashboard', (req, res) => {
-    usersDB = loadUsers();
-    if (!req.session.userId || !usersDB[req.session.userId]) {
+    const cookies = getCookies(req);
+    let tokenData = parseSecureToken(cookies.avetracker_token);
+
+    if (!req.session.userId && tokenData) {
+        req.session.userId = tokenData.userId;
+        req.session.username = tokenData.username;
+        req.session.salt = tokenData.salt;
+    }
+
+    if (!req.session.userId) {
         return res.redirect('/auth/twitch');
     }
 
-    const user = usersDB[req.session.userId];
+    const username = req.session.username;
+    const salt = req.session.salt || (tokenData ? tokenData.salt : 'v1');
+    const token = createSecureToken(req.session.userId, username, salt);
+    
     const serverDomain = req.get('host');
     const protocol = req.protocol;
-    const streamElementsCommand = `\$(customapi ${protocol}://${serverDomain}/api/track?channel=${user.username})`;
+    const streamElementsCommand = `\$(customapi ${protocol}://${serverDomain}/api/track?channel=${username})`;
 
     res.send(`
         <!DOCTYPE html>
@@ -114,7 +167,6 @@ app.get('/dashboard', (req, res) => {
                 body { font-family: sans-serif; background: #0e0e10; color: #efeff1; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
                 .container { background: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 30px; max-width: 550px; width: 100%; text-align: left; }
                 .profile-header { display: flex; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #2f2f35; padding-bottom: 15px; }
-                .avatar { width: 50px; height: 50px; border-radius: 50%; margin-right: 15px; border: 2px solid #9146ff; }
                 h2 { color: #fff; font-size: 22px; }
                 .subtext { color: #adadb8; font-size: 13px; }
                 label { display: block; color: #bf94ff; font-size: 13px; font-weight: bold; margin-bottom: 5px; margin-top: 15px; }
@@ -132,16 +184,15 @@ app.get('/dashboard', (req, res) => {
         <body>
             <div class="container">
                 <div class="profile-header">
-                    <img src="${user.avatar}" alt="Avatar" class="avatar">
                     <div>
-                        <h2>${user.username}</h2>
-                        <span class="subtext">Авторизован через Twitch</span>
+                        <h2>${username}</h2>
+                        <span class="subtext">Авторизован через Twitch (Защищенный профиль)</span>
                     </div>
                 </div>
 
                 <label>Ваш постоянный токен:</label>
                 <div class="input-group">
-                    <input type="password" id="tokenInput" value="${user.token}" readonly onclick="this.select();">
+                    <input type="password" id="tokenInput" value="${token}" readonly onclick="this.select();">
                     <button class="btn-toggle" onclick="toggleTokenVisibility()">👁️ Показать</button>
                 </div>
                 
@@ -176,11 +227,33 @@ app.get('/dashboard', (req, res) => {
     `);
 });
 
-// --- СЕКРЕТНАЯ АДМИН-ПАНЕЛЬ ДЛЯ ВАС ---
+// Кнопка ручного сброса (перегенерации) токена
+app.get('/regenerate-token', (req, res) => {
+    const cookies = getCookies(req);
+    let tokenData = parseSecureToken(cookies.avetracker_token);
+    
+    if (!req.session.userId && tokenData) {
+        req.session.userId = tokenData.userId;
+        req.session.username = tokenData.username;
+    }
+
+    if (!req.session.userId) return res.redirect('/');
+    
+    // Создаем новую уникальную соль (токен изменится навсегда)
+    const newSalt = 'v_' + Date.now().toString(36);
+    req.session.salt = newSalt;
+
+    const newToken = createSecureToken(req.session.userId, req.session.username, newSalt);
+    res.setHeader('Set-Cookie', `avetracker_token=${newToken}; Max-Age=${60*60*24*365}; Path=/; HttpOnly; Secure; SameSite=Lax`);
+    
+    res.redirect('/dashboard');
+});
+
+// --- АДМИН-ПАНЕЛЬ ---
 app.get('/admin', (req, res) => {
     const key = req.query.key;
     if (key !== ADMIN_SECRET_KEY) {
-        return res.status(403).send('<h1>403 Forbidden</h1><p>Неверный секретный ключ администратора.</p>');
+        return res.status(403).send('<h1>403 Forbidden</h1><p>Неверный ключ администратора.</p>');
     }
 
     usersDB = loadUsers();
@@ -191,23 +264,25 @@ app.get('/admin', (req, res) => {
     const userIds = Object.keys(usersDB);
 
     if (userIds.length === 0) {
-        usersRows = '<tr><td colspan="4" style="text-align:center; color: #848494;">База данных пока пуста (никто еще не авторизовался).</td></tr>';
+        usersRows = '<tr><td colspan="4" style="text-align:center; color: #848494;">База данных пуста.</td></tr>';
     } else {
         userIds.forEach((id, index) => {
             const u = usersDB[id];
+            const token = createSecureToken(id, u.username, u.salt || 'v1');
             const cmd = `\$(customapi ${protocol}://${serverDomain}/api/track?channel=${u.username})`;
+            
             usersRows += `
                 <tr>
                     <td>${index + 1}</td>
                     <td>
                         <div style="display:flex; align-items:center; gap: 10px;">
-                            <img src="${u.avatar}" width="30" height="30" style="border-radius:50%;">
+                            <img src="${u.avatar || ''}" width="30" height="30" style="border-radius:50%; background:#2f2f35;">
                             <b>${u.username}</b><br><span style="font-size:11px; color:#848494;">ID: ${id}</span>
                         </div>
                     </td>
                     <td>
                         <div style="display:flex; gap:5px;">
-                            <input type="password" id="adm_token_${id}" value="${u.token}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:220px; font-size:12px;" onclick="this.select();">
+                            <input type="password" id="adm_token_${id}" value="${token}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:220px; font-size:12px;" onclick="this.select();">
                             <button onclick="toggleAdminToken('${id}')" style="background:#2f2f35; border:none; color:#fff; padding:0 8px; border-radius:4px; cursor:pointer;">👁️</button>
                         </div>
                     </td>
@@ -239,13 +314,12 @@ app.get('/admin', (req, res) => {
         <body>
             <div class="container">
                 <h1>Панель администратора AVETRACKER <span class="badge">База стримеров</span></h1>
-                <p style="color: #adadb8; font-size: 13px; margin-bottom: 15px;">Здесь хранятся данные всех пользователей, которые вошли через Twitch. Вы можете скопировать токен или команду для настройки.</p>
                 <table>
                     <thead>
                         <tr>
                             <th>#</th>
                             <th>Стример</th>
-                            <th>Постоянный токен</th>
+                            <th>Текущий токен</th>
                             <th>Команда StreamElements</th>
                         </tr>
                     </thead>
@@ -261,11 +335,7 @@ app.get('/admin', (req, res) => {
             <script>
                 function toggleAdminToken(id) {
                     const input = document.getElementById('adm_token_' + id);
-                    if (input.type === 'password') {
-                        input.type = 'text';
-                    } else {
-                        input.type = 'password';
-                    }
+                    input.type = input.type === 'password' ? 'text' : 'password';
                 }
             </script>
         </body>
@@ -273,18 +343,9 @@ app.get('/admin', (req, res) => {
     `);
 });
 
-app.get('/regenerate-token', (req, res) => {
-    usersDB = loadUsers();
-    if (!req.session.userId || !usersDB[req.session.userId]) {
-        return res.redirect('/');
-    }
-    usersDB[req.session.userId].token = 'ave_' + crypto.randomBytes(24).toString('hex');
-    saveUsers(usersDB);
-    res.redirect('/dashboard');
-});
-
 app.get('/logout', (req, res) => {
     req.session.destroy(() => {
+        res.setHeader('Set-Cookie', 'avetracker_token=; Max-Age=0; Path=/; HttpOnly; Secure');
         res.redirect('/');
     });
 });
@@ -324,24 +385,20 @@ app.get('/auth/twitch/callback', async (req, res) => {
         const username = twitchUser.login.toLowerCase();
         const avatar = twitchUser.profile_image_url;
 
+        // Сохраняем в users.json для админки
         usersDB = loadUsers();
-
-        if (!usersDB[userId]) {
-            usersDB[userId] = {
-                username: username,
-                avatar: avatar,
-                token: 'ave_' + crypto.randomBytes(24).toString('hex')
-            };
-        } else {
-            usersDB[userId].username = username;
-            usersDB[userId].avatar = avatar;
-            if (!usersDB[userId].token) {
-                usersDB[userId].token = 'ave_' + crypto.randomBytes(24).toString('hex');
-            }
-        }
-
+        let salt = usersDB[userId]?.salt || 'v1';
+        
+        usersDB[userId] = { username, avatar, salt };
         saveUsers(usersDB);
+
         req.session.userId = userId;
+        req.session.username = username;
+        req.session.salt = salt;
+
+        const permanentToken = createSecureToken(userId, username, salt);
+        res.setHeader('Set-Cookie', `avetracker_token=${permanentToken}; Max-Age=${60*60*24*365}; Path=/; HttpOnly; Secure; SameSite=Lax`);
+        
         res.redirect('/dashboard');
 
     } catch (err) {
@@ -352,17 +409,16 @@ app.get('/auth/twitch/callback', async (req, res) => {
 
 // --- API ДЛЯ ТРЕКЕРОВ ---
 app.post('/api/update-track', (req, res) => {
-    usersDB = loadUsers();
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     const { track } = req.body;
 
     if (!token || !track) return res.status(400).send('Bad request');
 
-    const user = Object.values(usersDB).find(u => u.token === token);
-    if (!user) return res.status(401).send('Unauthorized: Invalid token');
+    const tokenData = parseSecureToken(token);
+    if (!tokenData) return res.status(401).send('Unauthorized: Invalid token');
 
-    currentMusic[user.username] = track;
+    currentMusic[tokenData.username] = track;
     res.send('OK');
 });
 
@@ -371,6 +427,11 @@ app.get('/api/track', (req, res) => {
     if (!channel) return res.status(400).send('Missing channel');
     const track = currentMusic[channel.toLowerCase()] || 'Музыка не играет';
     res.send(track);
+});
+
+// Keep-Alive пинг
+app.get('/api/ping', (req, res) => {
+    res.status(200).send('PONG');
 });
 
 // --- СТАТИКА ---
