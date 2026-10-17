@@ -16,8 +16,8 @@ app.use(session({
 }));
 
 // Настройки Twitch OAuth
-const TWITCH_CLIENT_ID = 'ВАШ_TWITCH_CLIENT_ID';
-const TWITCH_CLIENT_SECRET = 'ВАШ_TWITCH_CLIENT_SECRET';
+const TWITCH_CLIENT_ID = 'e2g9rcwz8ti2ivthv2g64tyziqel21';
+const TWITCH_CLIENT_SECRET = '4xnnc64vn27lvjlq1436ivp6qhji6d';
 const REDIRECT_URI = 'https://avetracker-hub.onrender.com/auth/twitch/callback';
 
 // База данных пользователей в памяти
