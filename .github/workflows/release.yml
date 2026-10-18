@@ -2,27 +2,27 @@ name: Auto Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - master # Срабатывает автоматически при каждом обычном коммите и пуше в master
 
 jobs:
   release:
-    runs-on: ubuntu-latest
     permissions:
       contents: write
-
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create Release and Upload Files
+      - name: Create or Update Latest Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: latest        # Всегда используем один и тот же тег
+          name: "Latest Build"    # Название релиза на странице GitHub
+          body: "Автоматическое обновление по последнему коммиту."
+          prerelease: false
           files: |
             releases/public/downloads/avetracker.exe
             releases/public/downloads/avetracker.user.js
-          name: Release ${{ github.ref_name }}
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
