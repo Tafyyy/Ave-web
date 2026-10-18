@@ -262,7 +262,7 @@ app.get('/', async (req, res) => {
                     </div>
                 </div>
 
-                <!-- Боковая панель инструкции -->
+		<!-- Боковая панель инструкции -->
                 <div class="sidebar" id="instructionSidebar">
                     <h3>
                         <span>📖 Инструкция по установке</span>
@@ -270,28 +270,16 @@ app.get('/', async (req, res) => {
                     </h3>
 
                     <div class="step-block">
-                        <div class="step-title">📥 1. Установка расширения Tampermonkey</div>
+                        <div class="step-title">🌐 Вариант А: Через браузер (UserScript)</div>
                         <div class="step-text">
-                            Для работы UserScript нужно расширение для браузера:
                             <ol>
-                                <li>Установите расширение: 
+                                <li>Установите расширение Tampermonkey: 
                                     <a href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank">Chrome / Yandex / Edge</a> или 
                                     <a href="https://addons.mozilla.org/ru/firefox/addon/tampermonkey/" target="_blank">Firefox</a>.
                                 </li>
-                                <li>Нажмите <b>«Установить UserScript»</b> на нашей главной странице и подтвердите установку.</li>
-                            </ol>
-                        </div>
-                    </div>
-
-                    <div class="step-block">
-                        <div class="step-title">⚠️ 2. Устранение ошибки «Разрешить пользовательские скрипты»</div>
-                        <div class="step-text">
-                            Если в меню Tampermonkey висит ошибка доступа или скрипт не запускается:
-                            <ol>
-                                <li>Перейдите в настройки расширений браузера (в Chrome / Yandex / Edge вставьте в адресную строку: <code>chrome://extensions/?id=dhdgffkkebhmkfjojejmpbldmpobfkfo</code>).</li>
-                                <li><b>Включите «Режим разработчика»</b> (Developer mode) в верхнем углу страницы расширений.</li>
-                                <li>В настройках Tampermonkey включите пункт <b>«Разрешить пользовательские скрипты»</b> (Allow access to file URLs / пользовательские сценарии).</li>
-                                <li>Перезагрузите страницу с Яндекс Музыкой.</li>
+                                <li>Нажмите <b>«Установить UserScript»</b> на главной странице и подтвердите установку.</li>
+                                <li><b>Если появилась ошибка доступа:</b> перейдите по ссылке <code>chrome://extensions/?id=dhdgffkkebhmkfjojejmpbldmpobfkfo</code>, включите <b>«Режим разработчика»</b> в верхнем углу и активируйте пункт <b>«Разрешить пользовательские скрипты»</b>.</li>
+                                <li>Войдите через Twitch, скопируйте токен и вставьте его при первом проигрывании трека в Яндекс Музыке.</li>
                             </ol>
                         </div>
                     </div>
