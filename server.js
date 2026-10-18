@@ -6,6 +6,14 @@ const { Pool } = require('pg');
 
 const app = express();
 
+const fs = require('fs');
+
+if (fs.existsSync('/etc/secrets/.env')) {
+    require('dotenv').config({ path: '/etc/secrets/.env' });
+} else {
+    require('dotenv').config();
+}
+
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
