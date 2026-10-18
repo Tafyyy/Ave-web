@@ -641,7 +641,7 @@ async function pollLastFm() {
             console.log(`🔎 [LAST.FM CHECK] Проверяем Last.fm юзера: "${lfmUser}" для канала "${username}"...`);
 
             try {
-                const url = `http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${encodeURIComponent(lfmUser)}&api_key=d52922709d73cb690236a291f09c00b0&format=json&limit=1`;
+                const url = `http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${encodeURIComponent(lfmUser)}&api_key=2c6089c9ecc543c988feabb7935d8289&format=json&limit=1`;
                 
                 const response = await fetch(url);
                 const data = await response.json();
