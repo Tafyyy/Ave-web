@@ -6,6 +6,16 @@ const { Pool } = require('pg');
 
 const app = express();
 
+const verifyToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) return res.sendStatus(401);
+
+    // Здесь ваша логика проверки токена в базе Supabase...
+    // Если токен валиден, вызываем next(), если нет — res.sendStatus(401)
+};
+
 const fs = require('fs');
 
 if (fs.existsSync('/etc/secrets/.env')) {
