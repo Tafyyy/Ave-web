@@ -1,38 +1,20 @@
 // ==UserScript==
 // @name         AVETRACKER Yandex Music Tracker
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Автоматический трекер играющих треков из Яндекс Музыки для AVETRACKER Hub
 // @author       Tafyyy
 // @match        https://music.yandex.ru/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
-// @grant        GM_registerMenuCommand
 // @connect      *
 // ==/UserScript==
 
 (function() {
     'use strict';
 
-    // Хост вашего хаба на Render
     const HUB_URL = "https://avetracker-hub.onrender.com"; 
-
-    // Функция запроса и сохранения токена через меню
-    function setTokenManually() {
-        const currentToken = GM_getValue('avetracker_token', '');
-        const newToken = prompt("Введите ваш личный токен из кабинета AVETRACKER Hub:", currentToken);
-        if (newToken !== null) {
-            const trimmed = newToken.trim();
-            GM_setValue('avetracker_token', trimmed);
-            alert(trimmed ? "✅ Токен успешно сохранен!" : "❌ Токен удален.");
-        }
-    }
-
-    // Добавляем пункт в меню расширения Tampermonkey
-    if (typeof GM_registerMenuCommand === 'function') {
-        GM_registerMenuCommand("🔑 Указать/Изменить токен AVETRACKER", setTokenManually);
-    }
 
     function getToken() {
         let token = GM_getValue('avetracker_token', null);
@@ -44,6 +26,49 @@
         }
         return token;
     }
+
+    // Создаем кнопку управления токеном на странице Яндекс Музыки
+    function createTokenButton() {
+        if (document.getElementById('avetracker-btn')) return;
+
+        const btn = document.createElement('button');
+        btn.id = 'avetracker-btn';
+        btn.innerText = '🔑 AVETRACKER Токен';
+        btn.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 99999;
+            background: #9146ff;
+            color: white;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-family: sans-serif;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            transition: background 0.2s;
+        `;
+        btn.onmouseover = () => btn.style.background = '#772ce8';
+        btn.onmouseout = () => btn.style.background = '#9146ff';
+        
+        btn.onclick = () => {
+            const currentToken = GM_getValue('avetracker_token', '');
+            const newToken = prompt("Введите ваш личный токен из кабинета AVETRACKER Hub:", currentToken);
+            if (newToken !== null) {
+                const trimmed = newToken.trim();
+                GM_setValue('avetracker_token', trimmed);
+                alert(trimmed ? "✅ Токен успешно сохранен!" : "❌ Токен удален.");
+            }
+        };
+
+        document.body.appendChild(btn);
+    }
+
+    // Запускаем создание кнопки после загрузки страницы
+    setTimeout(createTokenButton, 2000);
 
     function sendTrack(trackName) {
         const token = getToken();
@@ -59,8 +84,8 @@
             data: JSON.stringify({ track: trackName }),
             onload: function(response) {
                 if (response.status === 401) {
-                    alert("AVETRACKER: Токен недействителен или устарел! Обновите его через меню расширения.");
-                    GM_setValue('avetracker_token', ''); // Сбрасываем неверный токен
+                    alert("AVETRACKER: Токен недействителен или устарел! Обновите его с помощью кнопки на странице.");
+                    GM_setValue('avetracker_token', ''); 
                 }
             }
         });
@@ -68,7 +93,6 @@
 
     let lastTrack = "";
 
-    // Интервал проверки играющего трека в Яндекс Музыке
     setInterval(() => {
         const titleEl = document.querySelector('.player-controls__track-title, .track__title');
         const artistEl = document.querySelector('.player-controls__track-artists, .track__artists');
