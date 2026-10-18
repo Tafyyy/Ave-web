@@ -630,23 +630,28 @@ async function pollLastFm() {
         
         for (const row of res.rows) {
             const username = row.username.toLowerCase();
-            const lfmUser = row.lastfm_user;
+            const lfmUser = row.lastfm_user.trim();
             
             try {
-                // Публичный API Last.fm (используем встроенный публичный ключ)
+                // Публичный API Last.fm
                 const url = `http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${encodeURIComponent(lfmUser)}&api_key=d52922709d73cb690236a291f09c00b0&format=json&limit=1`;
                 
                 const response = await fetch(url);
                 const data = await response.json();
-                const tracks = data.recenttracks && data.recenttracks.track;
                 
-                if (tracks && tracks.length > 0) {
+                let rawTracks = data.recenttracks ? data.recenttracks.track : null;
+                if (!rawTracks) continue;
+
+                // Если вернулся один трек не в массиве, оборачиваем в массив
+                const tracks = Array.isArray(rawTracks) ? rawTracks : [rawTracks];
+
+                if (tracks.length > 0) {
                     const latest = tracks[0];
                     const attr = latest['@attr'];
                     const isPlaying = attr && attr.nowplaying === 'true';
                     
                     if (isPlaying) {
-                        const artist = (latest.artist && latest.artist['#text']) || '';
+                        const artist = (latest.artist && (latest.artist['#text'] || latest.artist.name)) || '';
                         const title = latest.name || '';
                         const trackStr = artist ? `${artist} — ${title}` : title;
                         
@@ -654,14 +659,20 @@ async function pollLastFm() {
                             currentMusic[username] = trackStr;
                             console.log(`🎵 [LAST.FM] Стример: ${username} | Трек: ${trackStr}`);
                         }
+                    } else {
+                        // Если музыка встала на паузу
+                        if (currentMusic[username] && currentMusic[username] !== "Музыка не играет") {
+                            currentMusic[username] = "Музыка не играет";
+                            console.log(`⏸️ [LAST.FM] Стример: ${username} | Пауза`);
+                        }
                     }
                 }
             } catch (err) {
-                // Тихо пропускаем сетевые сбои отдельных запросов
+                console.error(`❌ [LAST.FM API Error] Юзер: ${lfmUser}:`, err.message);
             }
         }
     } catch (err) {
-        console.error('Ошибка фонового опроса Last.fm:', err);
+        console.error('❌ [LAST.FM DB Error]:', err.message);
     }
 }
 
