@@ -1,26 +1,43 @@
 // ==UserScript==
 // @name         AVETRACKER Yandex Music Tracker
 // @namespace    http://tampermonkey.net/
-// @version      1.1
+// @version      1.2
 // @description  Автоматический трекер играющих треков из Яндекс Музыки для AVETRACKER Hub
 // @author       Tafyyy
 // @match        https://music.yandex.ru/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
+// @grant        GM_registerMenuCommand
 // @connect      *
 // ==/UserScript==
 
 (function() {
     'use strict';
 
-    // Получаем хост вашего хаба (автоматически или можно прописать жестко)
+    // Хост вашего хаба на Render
     const HUB_URL = "https://avetracker-hub.onrender.com"; 
+
+    // Функция запроса и сохранения токена через меню
+    function setTokenManually() {
+        const currentToken = GM_getValue('avetracker_token', '');
+        const newToken = prompt("Введите ваш личный токен из кабинета AVETRACKER Hub:", currentToken);
+        if (newToken !== null) {
+            const trimmed = newToken.trim();
+            GM_setValue('avetracker_token', trimmed);
+            alert(trimmed ? "✅ Токен успешно сохранен!" : "❌ Токен удален.");
+        }
+    }
+
+    // Добавляем пункт в меню расширения Tampermonkey
+    if (typeof GM_registerMenuCommand === 'function') {
+        GM_registerMenuCommand("🔑 Указать/Изменить токен AVETRACKER", setTokenManually);
+    }
 
     function getToken() {
         let token = GM_getValue('avetracker_token', null);
         if (!token) {
-            token = prompt("Введите ваш личный токен из кабинета AVETRACKER Hub:");
+            token = prompt("AVETRACKER: Введите ваш личный токен из кабинета:");
             if (token) {
                 GM_setValue('avetracker_token', token.trim());
             }
@@ -42,7 +59,7 @@
             data: JSON.stringify({ track: trackName }),
             onload: function(response) {
                 if (response.status === 401) {
-                    alert("AVETRACKER: Токен недействителен или устарел! Обновите его на сайте.");
+                    alert("AVETRACKER: Токен недействителен или устарел! Обновите его через меню расширения.");
                     GM_setValue('avetracker_token', ''); // Сбрасываем неверный токен
                 }
             }
@@ -51,9 +68,8 @@
 
     let lastTrack = "";
 
-    // Интервал проверки играющего трека в интерфейсе Яндекс Музыки
+    // Интервал проверки играющего трека в Яндекс Музыке
     setInterval(() => {
-        // Селекторы элементов названия трека и исполнителя в Яндекс Музыке
         const titleEl = document.querySelector('.player-controls__track-title, .track__title');
         const artistEl = document.querySelector('.player-controls__track-artists, .track__artists');
 
