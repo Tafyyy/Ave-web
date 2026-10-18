@@ -628,67 +628,51 @@ async function pollLastFm() {
     try {
         const res = await pool.query("SELECT username, lastfm_user FROM users WHERE lastfm_user IS NOT NULL AND lastfm_user != ''");
         
-        // Показываем в логах, сколько аккаунтов Last.fm нашел сервер в БД
-        if (res.rows.length === 0) {
-            console.log('⚠️ [LAST.FM] В базе нет пользователей с заполненным lastfm_user!');
-            return;
-        }
-
         for (const row of res.rows) {
             const username = row.username.toLowerCase();
             const lfmUser = row.lastfm_user.trim();
             
-            console.log(`🔎 [LAST.FM CHECK] Проверяем Last.fm юзера: "${lfmUser}" для канала "${username}"...`);
-
             try {
                 const url = `http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${encodeURIComponent(lfmUser)}&api_key=2c6089c9ecc543c988feabb7935d8289&format=json&limit=1`;
                 
                 const response = await fetch(url);
                 const data = await response.json();
                 
-                if (data.error) {
-                    console.error(`❌ [LAST.FM API ERROR] Ошибка от Last.fm для "${lfmUser}": ${data.message}`);
-                    continue;
-                }
+                if (data.error || !data.recenttracks) continue;
 
-                let rawTracks = data.recenttracks ? data.recenttracks.track : null;
-                if (!rawTracks) {
-                    console.log(`⚠️ [LAST.FM] Треки не найдены для "${lfmUser}"`);
-                    continue;
-                }
-
+                const rawTracks = data.recenttracks.track;
                 const tracks = Array.isArray(rawTracks) ? rawTracks : [rawTracks];
 
                 if (tracks.length > 0) {
                     const latest = tracks[0];
                     const attr = latest['@attr'];
-                    const isPlaying = attr && attr.nowplaying === 'true';
                     
-                    if (isPlaying) {
-                        const artist = (latest.artist && (latest.artist['#text'] || latest.artist.name)) || '';
-                        const title = latest.name || '';
-                        const trackStr = artist ? `${artist} — ${title}` : title;
-                        
-                        if (currentMusic[username] !== trackStr) {
-                            currentMusic[username] = trackStr;
-                            console.log(`🎵 [LAST.FM SUCCESS] Стример: ${username} | Трек: ${trackStr}`);
-                        } else {
-                            console.log(`ℹ️ [LAST.FM SAME] Трек не изменился: ${trackStr}`);
-                        }
-                    } else {
-                        console.log(`⏸️ [LAST.FM IDLE] В данный момент ничего не играет у "${lfmUser}"`);
+                    // СТРОГАЯ ПРОВЕРКА: Если песня НЕ играет прямо сейчас в Spotify, 
+                    // мы вообще ничего не делаем и оставляем currentMusic в покое (не перезаписываем).
+                    if (!attr || attr.nowplaying !== 'true') {
+                        continue; 
+                    }
+
+                    // Если действительно играет Spotify прямо сейчас:
+                    const artist = (latest.artist && (latest.artist['#text'] || latest.artist.name)) || '';
+                    const title = latest.name || '';
+                    const trackStr = artist ? `${artist} — ${title}` : title;
+                    
+                    if (currentMusic[username] !== trackStr) {
+                        currentMusic[username] = trackStr;
+                        console.log(`🎵 [LAST.FM ACTIVE] Стример: ${username} | Трек: ${trackStr}`);
                     }
                 }
             } catch (err) {
-                console.error(`❌ [LAST.FM FETCH ERROR] Ошибка запроса к Last.fm (${lfmUser}):`, err.message);
+                // Игнорируем сетевые ошибки
             }
         }
     } catch (err) {
-        console.error('❌ [LAST.FM DB ERROR] Ошибка базы данных:', err.message);
+        console.error('❌ [LAST.FM DB ERROR]:', err.message);
     }
 }
 
-// Запускаем фоновый опрос каждые 10 секунд
+// Запускаем опрос каждые 10 секунд
 setInterval(pollLastFm, 10000);
 
 
