@@ -10,17 +10,17 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 app.use(session({
-    secret: 'avetracker_super_secret_session_key_123',
+    secret: process.env.SESSION_SECRET || 'fallback_session_key',
     resave: false,
     saveUninitialized: false
 }));
 
-const TWITCH_CLIENT_ID = 'e2g9rcwz8ti2ivthv2g64tyziqel21';
-const TWITCH_CLIENT_SECRET = '4xnnc64vn27lvjlq1436ivp6qhji6d';
-const REDIRECT_URI = 'https://avetracker-hub.onrender.com/auth/twitch/callback';
+const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
+const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET;
+const REDIRECT_URI = process.env.REDIRECT_URI || 'https://avetracker-hub.onrender.com/auth/twitch/callback';
 
-const ADMIN_SECRET_KEY = 'my_super_secret_admin_key_777';
-const TOKEN_SECRET = 'avetracker_eternal_secure_key_2026';
+const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY;
+const TOKEN_SECRET = process.env.TOKEN_SECRET;
 
 // ==========================================
 // ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ SUPABASE (PostgreSQL)
