@@ -679,27 +679,17 @@ app.get('/auth/twitch/callback', async (req, res) => {
 // API ДЛЯ ПРИЛОЖЕНИЯ И ЧАТА
 // ==========================================
 
-app.post('/api/update-track', async (req, res) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    const { track } = req.body;
-
-    if (!token || !track) return res.status(400).send('Bad request');
-
-    const tokenData = await validateToken(token);
-    if (!tokenData) return res.status(401).send('Unauthorized: Invalid token');
-
-    try {
-        await pool.query(
-            `UPDATE users SET last_updated = $1 WHERE user_id = $2`,
-            [new Date().toLocaleString('ru-RU'), tokenData.userId]
-        );
-    } catch (err) {
-        console.error('Ошибка обновления трека в базе:', err);
+app.post('/api/update-track', verifyToken, (req, res) => {
+    let { track } = req.body;
+    
+    // Если клиент прислал сигнал паузы или пустую строку, пишем статус неактивности
+    if (!track || track === "Музыка на паузе" || track === "Остановлено") {
+        currentMusic[tokenData.username] = "Музыка не активна";
+    } else {
+        currentMusic[tokenData.username] = track;
     }
-
-    currentMusic[tokenData.username] = track;
-    res.send('OK');
+    
+    res.json({ success: true });
 });
 
 app.get('/api/track', (req, res) => {

@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         AVETRACKER Yandex Music Tracker
 // @namespace    http://tampermonkey.net/
-// @version      4.3
-// @description  Диагностический трекер для Яндекс Музыки
+// @version      4.9
+// @description  Стабильный трекер для AVETRACKER Hub с защитой от двойного окна
 // @author       Tafyyy
+// @match        https://*.music.yandex.ru/*
 // @match        https://music.yandex.ru/*
-// @match        https://music.yandex.com/*
+// @match        https://*.music.yandex.com/*
 // @run-at       document-end
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
@@ -16,24 +17,44 @@
 (function() {
     'use strict';
 
-    console.log("🚀 AVETRACKER: Скрипт успешно запущен на странице!");
+    console.log("🚀 AVETRACKER: Скрипт успешно запущен!");
 
     const HUB_URL = "https://avetracker-hub.onrender.com/api/update-track";
     let token = GM_getValue('avetracker_token', '');
+    let isPromptOpen = false;
 
     function setupToken() {
-        const input = prompt('Введите ваш личный токен из кабинета AVETRACKER Hub:', token);
-        if (input && input.trim() !== '') {
-            token = input.trim();
-            GM_setValue('avetracker_token', token);
-            alert('✅ Токен успешно сохранен!');
-        } else {
-            alert('❌ Токен не может быть пустым!');
+        if (isPromptOpen) return;
+        isPromptOpen = true;
+
+        // Сразу стираем токен в памяти и в хранилище, чтобы остановить любые другие запросы
+        token = '';
+        GM_setValue('avetracker_token', '');
+
+        const input = prompt('AVETRACKER: Ваш токен недействителен или устарел.\nВведите актуальный токен из личного кабинета:', '');
+
+        // Даем небольшую задержку перед снятием флага, чтобы все старые ответы успели проигнорироваться
+        setTimeout(() => {
+            isPromptOpen = false;
+        }, 1000);
+
+        if (input !== null) {
+            const trimmed = input.trim();
+            if (trimmed !== '') {
+                token = trimmed;
+                GM_setValue('avetracker_token', token);
+                console.log('✅ Новый токен успешно сохранен!');
+            } else {
+                alert('❌ Токен не может быть пустым!');
+            }
         }
     }
 
     GM_registerMenuCommand('🔑 Изменить токен AVETRACKER', setupToken);
-    if (!token) setupToken();
+
+    if (!token) {
+        setupToken();
+    }
 
     function addTokenButton() {
         if (document.getElementById('ave-token-btn')) return;
@@ -51,56 +72,71 @@
         document.body.appendChild(btn);
     }
 
-    let lastSentTrack = '';
+let lastTrackSent = "";
+    let lastIsPlaying = null;
 
     setInterval(() => {
         addTokenButton();
-        if (!token) return;
 
-        let currentTrack = "Ничего не играет";
+        if (!token || isPromptOpen) {
+            return;
+        }
+
+        let currentTrack = null;
+        let isPlaying = false;
 
         try {
-            if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
+            if ('mediaSession' in navigator) {
+                if (navigator.mediaSession.playbackState === 'playing') {
+                    isPlaying = true;
+                }
+            }
+
+            if (navigator.mediaSession && navigator.mediaSession.metadata) {
                 const metadata = navigator.mediaSession.metadata;
                 if (metadata.title && metadata.artist) {
                     currentTrack = `${metadata.artist} — ${metadata.title}`;
                 }
             }
         } catch (e) {
-            console.error("Ошибка чтения mediaSession:", e);
+            console.error("Ошибка чтения статуса плеера:", e);
         }
 
-        // Запасной вариант: если mediaSession пуст, пробуем вытащить текст из DOM заголовка страницы или плеера
-        if (currentTrack === "Ничего не играет") {
-            const pageTitle = document.title; // Обычно содержит "Трек — Исполнитель | Яндекс Музыка"
-            if (pageTitle && pageTitle.includes(" — ")) {
-                currentTrack = pageTitle.split(" — Яндекс Музыка")[0].trim();
-            }
+        // Логика отправки только при изменении состояния (трека или статуса воспроизведения)
+        let trackPayload = null;
+
+        if (isPlaying && currentTrack) {
+            trackPayload = currentTrack;
+        } else {
+            trackPayload = "Музыка на паузе";
         }
 
-        console.log("🎵 Текущий статус трека:", currentTrack);
+        // Шлем запрос на сервер ТОЛЬКО если состояние реально изменилось
+        if (isPlaying !== lastIsPlaying || (isPlaying && trackPayload !== lastTrackSent)) {
+            lastIsPlaying = isPlaying;
+            lastTrackSent = trackPayload;
 
-        // Отправляем запрос на сервер каждые 5 секунд
-        GM_xmlhttpRequest({
-            method: "POST",
-            url: HUB_URL,
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`
-            },
-            data: JSON.stringify({ track: currentTrack }),
-            onload: function(res) {
-                console.log("📡 Ответ сервера:", res.status, res.responseText);
-                if (res.status === 401) {
-                    console.warn('⚠️ AVETRACKER: Токен недействителен!');
-                    GM_setValue('avetracker_token', '');
-                    setupToken();
+            console.log("📡 Отправка статуса:", trackPayload);
+
+            GM_xmlhttpRequest({
+                method: "POST",
+                url: HUB_URL,
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                data: JSON.stringify({ track: trackPayload }),
+                onload: function(res) {
+                    if (res.status === 401 && !isPromptOpen && token !== '') {
+                        console.warn('⚠️ Токен отклонен сервером (401)');
+                        setupToken();
+                    }
+                },
+                onerror: function(err) {
+                    console.error('❌ Ошибка сети:', err);
                 }
-            },
-            onerror: function(err) {
-                console.error('❌ Ошибка соединения с сервером:', err);
-            }
-        });
-    }, 5000);
+            });
+        }
+    }, 3000);
 
 })();
