@@ -1,5 +1,5 @@
 {
     "user_token": "ave_MTMwNTE0ODQ1fGF2ZXRhZnl5eXl8dl9tdmQ5NXE2Zw_33074021743d229f503382df",
     "backend_url": "https://avetracker-hub.onrender.com/api/update-track",
-    "update_interval_sec": 5
+    "update_interval_sec": 2
 }

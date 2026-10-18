@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AVETRACKER Yandex Music Tracker
 // @namespace    http://tampermonkey.net/
-// @version      4.9
-// @description  Стабильный трекер для AVETRACKER Hub с защитой от двойного окна
+// @version      5.2
+// @description  Стабильный трекер для AVETRACKER Hub с точной передачей статуса "Музыка не играет"
 // @author       Tafyyy
 // @match        https://*.music.yandex.ru/*
 // @match        https://music.yandex.ru/*
@@ -17,7 +17,7 @@
 (function() {
     'use strict';
 
-    console.log("🚀 AVETRACKER: Скрипт успешно запущен!");
+    console.log("🚀 AVETRACKER: Скрипт запущен!");
 
     const HUB_URL = "https://avetracker-hub.onrender.com/api/update-track";
     let token = GM_getValue('avetracker_token', '');
@@ -27,13 +27,11 @@
         if (isPromptOpen) return;
         isPromptOpen = true;
 
-        // Сразу стираем токен в памяти и в хранилище, чтобы остановить любые другие запросы
         token = '';
         GM_setValue('avetracker_token', '');
 
         const input = prompt('AVETRACKER: Ваш токен недействителен или устарел.\nВведите актуальный токен из личного кабинета:', '');
 
-        // Даем небольшую задержку перед снятием флага, чтобы все старые ответы успели проигнорироваться
         setTimeout(() => {
             isPromptOpen = false;
         }, 1000);
@@ -72,7 +70,7 @@
         document.body.appendChild(btn);
     }
 
-let lastTrackSent = "";
+    let lastTrackSent = "";
     let lastIsPlaying = null;
 
     setInterval(() => {
@@ -86,10 +84,8 @@ let lastTrackSent = "";
         let isPlaying = false;
 
         try {
-            if ('mediaSession' in navigator) {
-                if (navigator.mediaSession.playbackState === 'playing') {
-                    isPlaying = true;
-                }
+            if ('mediaSession' in navigator && navigator.mediaSession.playbackState === 'playing') {
+                isPlaying = true;
             }
 
             if (navigator.mediaSession && navigator.mediaSession.metadata) {
@@ -98,25 +94,23 @@ let lastTrackSent = "";
                     currentTrack = `${metadata.artist} — ${metadata.title}`;
                 }
             }
+
+            // Резервный поиск наименования через заголовок вкладки
+            if (!currentTrack && document.title.includes(" — ")) {
+                currentTrack = document.title.split(" — Яндекс Музыка")[0].trim();
+            }
         } catch (e) {
             console.error("Ошибка чтения статуса плеера:", e);
         }
 
-        // Логика отправки только при изменении состояния (трека или статуса воспроизведения)
-        let trackPayload = null;
+        let trackPayload = (isPlaying && currentTrack) ? currentTrack : "Музыка не играет";
 
-        if (isPlaying && currentTrack) {
-            trackPayload = currentTrack;
-        } else {
-            trackPayload = "Музыка на паузе";
-        }
-
-        // Шлем запрос на сервер ТОЛЬКО если состояние реально изменилось
+        // Отправляем запрос только при изменении статуса или названия песни
         if (isPlaying !== lastIsPlaying || (isPlaying && trackPayload !== lastTrackSent)) {
             lastIsPlaying = isPlaying;
             lastTrackSent = trackPayload;
 
-            console.log("📡 Отправка статуса:", trackPayload);
+            console.log("📡 Отправка статуса на сервер:", trackPayload);
 
             GM_xmlhttpRequest({
                 method: "POST",

@@ -6,16 +6,6 @@ const { Pool } = require('pg');
 
 const app = express();
 
-const verifyToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-
-    if (!token) return res.sendStatus(401);
-
-    // Здесь ваша логика проверки токена в базе Supabase...
-    // Если токен валиден, вызываем next(), если нет — res.sendStatus(401)
-};
-
 const fs = require('fs');
 
 if (fs.existsSync('/etc/secrets/.env')) {
@@ -98,7 +88,7 @@ async function validateToken(token) {
         const expectedHmac = crypto.createHmac('sha256', TOKEN_SECRET).update(decoded).digest('hex').substring(0, 24);
         if (parts[2] !== expectedHmac) return null;
 
-        // Проверяем СТРОГО по активному токену (предыдущий больше недействителен)
+        // Проверяем СТРОГО по активному токену
         const res = await pool.query(
             'SELECT * FROM users WHERE user_id = $1 AND active_token = $2',
             [userId, token]
@@ -143,12 +133,40 @@ function getCookies(req) {
     return list;
 }
 
+// Middleware для проверки токена через базу данных
+const verifyToken = async (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) return res.sendStatus(401);
+
+    try {
+        const resDb = await pool.query(
+            'SELECT user_id, username FROM users WHERE active_token = $1',
+            [token]
+        );
+
+        if (resDb.rows.length === 0) {
+            return res.sendStatus(401); // Токен не найден или устарел
+        }
+
+        req.tokenData = {
+            userId: resDb.rows[0].user_id,
+            username: resDb.rows[0].username.toLowerCase()
+        };
+
+        next();
+    } catch (err) {
+        console.error('Ошибка проверки токена в middleware:', err);
+        return res.sendStatus(500);
+    }
+};
+
 
 // ==========================================
 // МАРШРУТЫ САЙТА (FRONTEND)
 // ==========================================
 
-// Главная страница
 app.get('/', async (req, res) => {
     const cookies = getCookies(req);
     const tokenData = await validateToken(cookies.avetracker_token);
@@ -212,7 +230,6 @@ app.get('/', async (req, res) => {
                 }
                 .info-link:hover { color: #ffffff; text-decoration: underline; }
 
-                /* Боковая панель с инструкцией */
                 .sidebar {
                     display: none;
                     background-color: #18181b;
@@ -236,7 +253,6 @@ app.get('/', async (req, res) => {
                 .step-text li { margin-bottom: 6px; }
                 .step-text a { color: #bf94ff; text-decoration: underline; }
                 .step-text a:hover { color: #ffffff; }
-                .alert-box { background: rgba(235, 4, 0, 0.1); border: 1px solid rgba(235, 4, 0, 0.3); border-radius: 6px; padding: 10px; margin-top: 8px; color: #ff8080; font-size: 12px; }
 
                 @keyframes fadeIn {
                     from { opacity: 0; transform: translateX(10px); }
@@ -258,7 +274,6 @@ app.get('/', async (req, res) => {
                     <div class="section">
                         <h2>Центр загрузок</h2>
                         <div>
-                            <!-- Ссылки ведут на ваши релизы GitHub -->
                             <a href="https://github.com/Tafyyy/Ave-web/releases/latest/download/avetracker.exe" class="btn" target="_blank">Скачать AVETRACKER.exe</a>
                             <a href="https://github.com/Tafyyy/Ave-web/releases/latest/download/avetracker.user.js" class="btn btn-secondary" target="_blank">Установить UserScript</a>
                         </div>
@@ -273,7 +288,6 @@ app.get('/', async (req, res) => {
                     </div>
                 </div>
 
-		<!-- Боковая панель инструкции -->
                 <div class="sidebar" id="instructionSidebar">
                     <h3>
                         <span>📖 Инструкция по установке</span>
@@ -284,13 +298,9 @@ app.get('/', async (req, res) => {
                         <div class="step-title">🌐 Вариант А: Через браузер (UserScript)</div>
                         <div class="step-text">
                             <ol>
-                                <li>Установите расширение Tampermonkey: 
-                                    <a href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank">Chrome / Yandex / Edge</a> или 
-                                    <a href="https://addons.mozilla.org/ru/firefox/addon/tampermonkey/" target="_blank">Firefox</a>.
-                                </li>
+                                <li>Установите расширение Tampermonkey.</li>
                                 <li>Нажмите <b>«Установить UserScript»</b> на главной странице и подтвердите установку.</li>
-                                <li><b>Если появилась ошибка доступа:</b> перейдите по ссылке <code>chrome://extensions/?id=dhdgffkkebhmkfjojejmpbldmpobfkfo</code>, включите <b>«Режим разработчика»</b> в верхнем углу и активируйте пункт <b>«Разрешить пользовательские скрипты»</b>.</li>
-                                <li>Войдите через Twitch, скопируйте токен и вставьте его при первом проигрывании трека в Яндекс Музыке.</li>
+                                <li>Войдите через Twitch, скопируйте токен и вставьте его при первом проигрывании трека.</li>
                             </ol>
                         </div>
                     </div>
@@ -300,8 +310,7 @@ app.get('/', async (req, res) => {
                         <div class="step-text">
                             <ol>
                                 <li>Скачайте и запустите <b>AVETRACKER.exe</b>.</li>
-                                <li>Скопируйте ваш токен из Личного кабинета.</li>
-                                <li>Вставьте токен при первом запуске программы.</li>
+                                <li>Скопируйте ваш токен из Личного кабинета и вставьте его при запуске.</li>
                             </ol>
                         </div>
                     </div>
@@ -309,8 +318,7 @@ app.get('/', async (req, res) => {
                     <div class="step-block">
                         <div class="step-title">🤖 Настройка бота в чате (StreamElements)</div>
                         <div class="step-text">
-                            1. Зайдите в Личный кабинет и скопируйте команду для бота.<br>
-                            2. Создайте команду (например, <code>!трек</code>) в панели StreamElements и вставьте скопированную ссылку.
+                            Создайте команду (например, <code>!трек</code>) в панели StreamElements и вставьте скопированную ссылку из Личного кабинета.
                         </div>
                     </div>
                 </div>
@@ -327,7 +335,6 @@ app.get('/', async (req, res) => {
     `);
 });
 
-// Личный кабинет стримера
 app.get('/dashboard', async (req, res) => {
     const cookies = getCookies(req);
     let tokenData = await validateToken(cookies.avetracker_token);
@@ -454,7 +461,7 @@ app.get('/regenerate-token', async (req, res) => {
     const newToken = createSecureToken(req.session.userId, req.session.username, newSalt);
 
     try {
-        const updateRes = await pool.query(`
+        await pool.query(`
             UPDATE users 
             SET 
                 previous_token = active_token,
@@ -462,139 +469,13 @@ app.get('/regenerate-token', async (req, res) => {
                 salt = $2,
                 last_updated = $3
             WHERE user_id = $4
-            RETURNING *;
         `, [newToken, newSalt, new Date().toLocaleString('ru-RU'), req.session.userId]);
-
-        console.log('Результат обновления токена в БД:', updateRes.rowCount > 0 ? 'Успешно' : 'Пользователь не найден в БД!');
     } catch (err) {
         console.error('Ошибка при пересоздании токена в базе:', err);
     }
 
     res.setHeader('Set-Cookie', `avetracker_token=${newToken}; Max-Age=${60*60*24*365}; Path=/; HttpOnly; Secure; SameSite=Lax`);
     res.redirect('/dashboard');
-});
-
-app.get('/admin', async (req, res) => {
-    const key = req.query.key;
-    if (key !== ADMIN_SECRET_KEY) {
-        return res.status(403).send('<h1>403 Forbidden</h1><p>Неверный ключ администратора.</p>');
-    }
-
-    let usersList = [];
-    try {
-        const result = await pool.query('SELECT * FROM users ORDER BY username ASC');
-        usersList = result.rows;
-    } catch (err) {
-        console.error('Ошибка чтения из базы:', err);
-    }
-
-    const serverDomain = req.get('host');
-    const protocol = req.protocol;
-
-    let usersRows = '';
-
-    if (usersList.length === 0) {
-        usersRows = '<tr><td colspan="7" style="text-align:center; color: #848494;">База данных пуста.</td></tr>';
-    } else {
-        usersList.forEach((u, index) => {
-            const currentToken = u.active_token || createSecureToken(u.user_id, u.username, u.salt || 'v1');
-            const prevToken = u.previous_token || 'Отсутствует';
-            const isModified = u.salt && u.salt !== 'v1';
-            
-            const statusBadge = isModified 
-                ? `<span style="background: rgba(255, 193, 7, 0.2); color: #ffc107; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold;">🟡 Перегенерирован</span>` 
-                : `<span style="background: rgba(40, 167, 69, 0.2); color: #28a745; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold;">🟢 Стандартный</span>`;
-
-            const cmd = `\$(customapi ${protocol}://${serverDomain}/api/track?channel=${u.username})`;
-            const lastActive = u.last_updated || 'Недавно';
-            
-            usersRows += `
-                <tr>
-                    <td>${index + 1}</td>
-                    <td>
-                        <div>
-                            <b>${u.username}</b><br>
-                            <span style="font-size:11px; color:#848494;">ID: ${u.user_id}</span>
-                        </div>
-                    </td>
-                    <td>${statusBadge}</td>
-                    <td>
-                        <div style="display:flex; gap:5px;">
-                            <input type="password" id="adm_token_${u.user_id}" value="${currentToken}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:180px; font-size:12px;" onclick="this.select();">
-                            <button onclick="toggleAdminToken('adm_token_${u.user_id}')" style="background:#2f2f35; border:none; color:#fff; padding:0 8px; border-radius:4px; cursor:pointer;">👁️</button>
-                        </div>
-                    </td>
-                    <td>
-                        <div style="display:flex; gap:5px;">
-                            <input type="password" id="adm_prev_${u.user_id}" value="${prevToken}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#adadb8; padding:5px; border-radius:4px; width:180px; font-size:12px;" onclick="this.select();">
-                            <button onclick="toggleAdminToken('adm_prev_${u.user_id}')" style="background:#2f2f35; border:none; color:#fff; padding:0 8px; border-radius:4px; cursor:pointer;">👁️</button>
-                        </div>
-                    </td>
-                    <td style="font-size: 12px; color: #adadb8;">${lastActive}</td>
-                    <td>
-                        <input type="text" value="${cmd}" readonly style="background:#0e0e10; border:1px solid #2f2f35; color:#efeff1; padding:5px; border-radius:4px; width:200px; font-size:11px;" onclick="this.select();">
-                    </td>
-                </tr>
-            `;
-        });
-    }
-
-    res.send(`
-        <!DOCTYPE html>
-        <html lang="ru">
-        <head>
-            <meta charset="UTF-8">
-            <title>Админ-панель - AVETRACKER</title>
-            <style>
-                * { box-sizing: border-box; margin: 0; padding: 0; }
-                body { font-family: sans-serif; background: #0e0e10; color: #efeff1; padding: 30px; }
-                .container { max-width: 1250px; margin: 0 auto; background: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 25px; }
-                h1 { color: #9146ff; margin-bottom: 20px; font-size: 24px; display: flex; justify-content: space-between; align-items: center; }
-                table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-                th, td { border-bottom: 1px solid #2f2f35; padding: 12px; text-align: left; font-size: 13px; }
-                th { color: #bf94ff; font-size: 12px; }
-                .badge { background: rgba(145, 70, 255, 0.15); color: #bf94ff; padding: 4px 10px; border-radius: 8px; font-size: 12px; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>
-                    <span>Панель администратора AVETRACKER</span>
-                    <span class="badge">Supabase (PostgreSQL Tokens)</span>
-                </h1>
-                <p style="color: #adadb8; font-size: 13px; margin-bottom: 15px;">Активные и предыдущие токены хранятся в постоянной базе данных.</p>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Стример</th>
-                            <th>Статус токена</th>
-                            <th>Активный токен</th>
-                            <th>Предыдущий токен</th>
-                            <th>Обновлен</th>
-                            <th>Команда StreamElements</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${usersRows}
-                    </tbody>
-                </table>
-                <div style="margin-top: 20px;">
-                    <a href="/" style="color: #9146ff; text-decoration: none; font-size: 14px;">← На главную сайта</a>
-                </div>
-            </div>
-
-            <script>
-                function toggleAdminToken(elemId) {
-                    const input = document.getElementById(elemId);
-                    if (input) {
-                        input.type = input.type === 'password' ? 'text' : 'password';
-                    }
-                }
-            </script>
-        </body>
-        </html>
-    `);
 });
 
 app.get('/logout', (req, res) => {
@@ -691,14 +572,15 @@ app.get('/auth/twitch/callback', async (req, res) => {
 
 app.post('/api/update-track', verifyToken, (req, res) => {
     let { track } = req.body;
+    const username = req.tokenData.username;
     
-    // Если клиент прислал сигнал паузы или пустую строку, пишем статус неактивности
-    if (!track || track === "Музыка на паузе" || track === "Остановлено") {
-        currentMusic[tokenData.username] = "Музыка не активна";
+    if (!track || track === "Музыка на паузе" || track === "Остановлено" || track === "Музыка не активна" || track === "Музыка не играет") {
+        currentMusic[username] = "Музыка не играет";
     } else {
-        currentMusic[tokenData.username] = track;
+        currentMusic[username] = track;
     }
     
+    console.log(`🎵 [UPDATE] Стример: ${username} | Трек: ${currentMusic[username]}`);
     res.json({ success: true });
 });
 
@@ -715,13 +597,9 @@ app.get('/api/ping', (req, res) => {
 
 
 // ==========================================
-// СТАТИКА (Маршруты для локальной статики сайта, если есть)
+// СТАТИКА И ЗАПУСК СЕРВЕРА
 // ==========================================
 app.use(express.static(path.join(__dirname, 'public')));
 
-
-// ==========================================
-// ЗАПУСК СЕРВЕРА
-// ==========================================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Hub running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Hub running on port ${PORT}`));
