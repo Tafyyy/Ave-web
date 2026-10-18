@@ -208,7 +208,7 @@ app.get('/', async (req, res) => {
                     border: 1px solid #2f2f35;
                     border-radius: 12px;
                     padding: 30px;
-                    max-width: 480px;
+                    max-width: 520px;
                     width: 100%;
                     text-align: left;
                     box-shadow: 0 10px 25px rgba(0,0,0,0.5);
@@ -222,7 +222,10 @@ app.get('/', async (req, res) => {
                 .step-title { color: #fff; font-size: 14px; font-weight: bold; margin-bottom: 6px; }
                 .step-text { color: #adadb8; font-size: 13px; line-height: 1.5; }
                 .step-text ol { margin-left: 18px; }
-                .step-text li { margin-bottom: 4px; }
+                .step-text li { margin-bottom: 6px; }
+                .step-text a { color: #bf94ff; text-decoration: underline; }
+                .step-text a:hover { color: #ffffff; }
+                .alert-box { background: rgba(235, 4, 0, 0.1); border: 1px solid rgba(235, 4, 0, 0.3); border-radius: 6px; padding: 10px; margin-top: 8px; color: #ff8080; font-size: 12px; }
 
                 @keyframes fadeIn {
                     from { opacity: 0; transform: translateX(10px); }
@@ -262,18 +265,33 @@ app.get('/', async (req, res) => {
                 <!-- Боковая панель инструкции -->
                 <div class="sidebar" id="instructionSidebar">
                     <h3>
-                        <span>📖 Инструкция</span>
+                        <span>📖 Инструкция по установке</span>
                         <button class="sidebar-close" onclick="toggleInstruction()">✕</button>
                     </h3>
 
                     <div class="step-block">
-                        <div class="step-title">🌐 Вариант А: Через браузер (UserScript)</div>
+                        <div class="step-title">📥 1. Установка расширения Tampermonkey</div>
                         <div class="step-text">
+                            Для работы UserScript нужно расширение для браузера:
                             <ol>
-                                <li>Установите расширение <b>Violentmonkey</b> в браузер.</li>
-                                <li>Нажмите <b>«Установить UserScript»</b> и подтвердите установку.</li>
-                                <li>Войдите через Twitch на сайте и скопируйте <b>токен</b> из кабинета.</li>
-                                <li>Вставьте токен при первом проигрывании трека в Яндекс Музыке.</li>
+                                <li>Установите расширение: 
+                                    <a href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank">Chrome / Yandex / Edge</a> или 
+                                    <a href="https://addons.mozilla.org/ru/firefox/addon/tampermonkey/" target="_blank">Firefox</a>.
+                                </li>
+                                <li>Нажмите <b>«Установить UserScript»</b> на нашей главной странице и подтвердите установку.</li>
+                            </ol>
+                        </div>
+                    </div>
+
+                    <div class="step-block">
+                        <div class="step-title">⚠️ 2. Устранение ошибки «Разрешить пользовательские скрипты»</div>
+                        <div class="step-text">
+                            Если в меню Tampermonkey висит ошибка доступа или скрипт не запускается:
+                            <ol>
+                                <li>Перейдите в настройки расширений браузера (в Chrome / Yandex / Edge вставьте в адресную строку: <code>chrome://extensions/?id=dhdgffkkebhmkfjojejmpbldmpobfkfo</code>).</li>
+                                <li><b>Включите «Режим разработчика»</b> (Developer mode) в верхнем углу страницы расширений.</li>
+                                <li>В настройках Tampermonkey включите пункт <b>«Разрешить пользовательские скрипты»</b> (Allow access to file URLs / пользовательские сценарии).</li>
+                                <li>Перезагрузите страницу с Яндекс Музыкой.</li>
                             </ol>
                         </div>
                     </div>
