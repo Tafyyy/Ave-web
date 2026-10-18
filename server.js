@@ -626,23 +626,37 @@ app.get('/api/ping', (req, res) => {
 // ==========================================
 async function pollLastFm() {
     try {
-        const res = await pool.query('SELECT username, lastfm_user FROM users WHERE lastfm_user IS NOT NULL AND lastfm_user != \'\'');
+        const res = await pool.query("SELECT username, lastfm_user FROM users WHERE lastfm_user IS NOT NULL AND lastfm_user != ''");
         
+        // Показываем в логах, сколько аккаунтов Last.fm нашел сервер в БД
+        if (res.rows.length === 0) {
+            console.log('⚠️ [LAST.FM] В базе нет пользователей с заполненным lastfm_user!');
+            return;
+        }
+
         for (const row of res.rows) {
             const username = row.username.toLowerCase();
             const lfmUser = row.lastfm_user.trim();
             
+            console.log(`🔎 [LAST.FM CHECK] Проверяем Last.fm юзера: "${lfmUser}" для канала "${username}"...`);
+
             try {
-                // Публичный API Last.fm
                 const url = `http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${encodeURIComponent(lfmUser)}&api_key=d52922709d73cb690236a291f09c00b0&format=json&limit=1`;
                 
                 const response = await fetch(url);
                 const data = await response.json();
                 
-                let rawTracks = data.recenttracks ? data.recenttracks.track : null;
-                if (!rawTracks) continue;
+                if (data.error) {
+                    console.error(`❌ [LAST.FM API ERROR] Ошибка от Last.fm для "${lfmUser}": ${data.message}`);
+                    continue;
+                }
 
-                // Если вернулся один трек не в массиве, оборачиваем в массив
+                let rawTracks = data.recenttracks ? data.recenttracks.track : null;
+                if (!rawTracks) {
+                    console.log(`⚠️ [LAST.FM] Треки не найдены для "${lfmUser}"`);
+                    continue;
+                }
+
                 const tracks = Array.isArray(rawTracks) ? rawTracks : [rawTracks];
 
                 if (tracks.length > 0) {
@@ -657,22 +671,20 @@ async function pollLastFm() {
                         
                         if (currentMusic[username] !== trackStr) {
                             currentMusic[username] = trackStr;
-                            console.log(`🎵 [LAST.FM] Стример: ${username} | Трек: ${trackStr}`);
+                            console.log(`🎵 [LAST.FM SUCCESS] Стример: ${username} | Трек: ${trackStr}`);
+                        } else {
+                            console.log(`ℹ️ [LAST.FM SAME] Трек не изменился: ${trackStr}`);
                         }
                     } else {
-                        // Если музыка встала на паузу
-                        if (currentMusic[username] && currentMusic[username] !== "Музыка не играет") {
-                            currentMusic[username] = "Музыка не играет";
-                            console.log(`⏸️ [LAST.FM] Стример: ${username} | Пауза`);
-                        }
+                        console.log(`⏸️ [LAST.FM IDLE] В данный момент ничего не играет у "${lfmUser}"`);
                     }
                 }
             } catch (err) {
-                console.error(`❌ [LAST.FM API Error] Юзер: ${lfmUser}:`, err.message);
+                console.error(`❌ [LAST.FM FETCH ERROR] Ошибка запроса к Last.fm (${lfmUser}):`, err.message);
             }
         }
     } catch (err) {
-        console.error('❌ [LAST.FM DB Error]:', err.message);
+        console.error('❌ [LAST.FM DB ERROR] Ошибка базы данных:', err.message);
     }
 }
 
