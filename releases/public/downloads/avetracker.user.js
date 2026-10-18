@@ -1,36 +1,47 @@
 // ==UserScript==
 // @name         AVETRACKER Yandex Music Tracker
 // @namespace    http://tampermonkey.net/
-// @version      1.4
+// @version      4.0
 // @description  Автоматический трекер играющих треков из Яндекс Музыки для AVETRACKER Hub
 // @author       Tafyyy
 // @match        https://music.yandex.ru/*
 // @match        https://music.yandex.com/*
 // @run-at       document-end
-// @grant        GM_setValue
-// @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
-// @connect      *
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
 // ==/UserScript==
 
 (function() {
     'use strict';
 
-    const HUB_URL = "https://avetracker-hub.onrender.com"; 
+    // Адрес вашего сервера на Render
+    const HUB_URL = "https://avetracker-hub.onrender.com/api/update-track";
 
-    function getToken() {
-        let token = GM_getValue('avetracker_token', null);
-        if (!token) {
-            token = prompt("AVETRACKER: Введите ваш личный токен из кабинета:");
-            if (token && token.trim()) {
-                token = token.trim();
-                GM_setValue('avetracker_token', token);
-            }
+    // Получаем токен из памяти
+    let token = GM_getValue('avetracker_token', '');
+
+    function setupToken() {
+        const input = prompt('Введите ваш личный токен из кабинета AVETRACKER Hub:', token);
+        if (input && input.trim() !== '') {
+            token = input.trim();
+            GM_setValue('avetracker_token', token);
+            alert('✅ Токен успешно сохранен!');
+        } else {
+            alert('❌ Токен не может быть пустым!');
         }
-        return token;
     }
 
-    // Создание фиксированной кнопки для смены токена в углу экрана
+    // Регистрация команды в меню Tampermonkey
+    GM_registerMenuCommand('🔑 Изменить токен AVETRACKER', setupToken);
+
+    // Если токена нет, сразу запрашиваем
+    if (!token) {
+        setupToken();
+    }
+
+    // Создание плавающей кнопки для смены токена прямо на странице
     function addTokenButton() {
         if (document.getElementById('ave-token-btn')) return;
 
@@ -54,63 +65,59 @@
             user-select: none;
             transition: transform 0.2s, background 0.2s;
         `;
-        
+
         btn.onmouseover = () => { btn.style.background = '#772ce8'; btn.style.transform = 'scale(1.05)'; };
         btn.onmouseout = () => { btn.style.background = '#9146ff'; btn.style.transform = 'scale(1)'; };
-
-        btn.onclick = () => {
-            const currentToken = GM_getValue('avetracker_token', '');
-            const newToken = prompt("Введите ваш личный токен из кабинета AVETRACKER Hub:", currentToken);
-            if (newToken !== null) {
-                const trimmed = newToken.trim();
-                GM_setValue('avetracker_token', trimmed);
-                alert(trimmed ? "✅ Токен успешно сохранен!" : "❌ Токен очищен.");
-            }
-        };
+        btn.onclick = setupToken;
 
         document.body.appendChild(btn);
     }
 
-    function sendTrack(trackName) {
-        const token = getToken();
+    let lastSentTrack = '';
+
+    setInterval(() => {
+        addTokenButton();
         if (!token) return;
 
-        GM_xmlhttpRequest({
-            method: "POST",
-            url: `${HUB_URL}/api/update-track`,
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`
-            },
-            data: JSON.stringify({ track: trackName }),
-            onload: function(response) {
-                if (response.status === 401) {
-                    alert("AVETRACKER: Токен недействителен или был изменен в кабинете!");
-                    GM_setValue('avetracker_token', '');
+        try {
+            if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
+                const metadata = navigator.mediaSession.metadata;
+                const title = metadata.title;
+                const artist = metadata.artist;
+
+                if (title && artist) {
+                    const trackString = `${artist} — ${title}`;
+
+                    if (trackString !== lastSentTrack) {
+                        lastSentTrack = trackString;
+                        console.log('🎵 Отправка трека:', trackString);
+
+                        GM_xmlhttpRequest({
+                            method: "POST",
+                            url: HUB_URL,
+                            headers: {
+                                "Content-Type": "application/json",
+                                "Authorization": `Bearer ${token}`
+                            },
+                            data: JSON.stringify({ track: trackString }),
+                            onload: function(res) {
+                                if (res.status === 200 || res.status === 201) {
+                                    console.log('✅ Трек успешно доставлен на сервер!');
+                                } else if (res.status === 401) {
+                                    alert('AVETRACKER: Токен недействителен!');
+                                    GM_setValue('avetracker_token', '');
+                                    setupToken();
+                                }
+                            },
+                            onerror: function(err) {
+                                console.error('❌ Ошибка отправки:', err);
+                            }
+                        });
+                    }
                 }
             }
-        });
-    }
-
-    let lastTrack = "";
-
-    // Основной цикл проверки плеера
-    setInterval(() => {
-        addTokenButton(); // Гарантируем появление кнопки
-
-        const titleEl = document.querySelector('.player-controls__track-title, .track__title, [class*="TrackTitle"]');
-        const artistEl = document.querySelector('.player-controls__track-artists, .track__artists, [class*="TrackArtists"]');
-
-        if (titleEl) {
-            const title = titleEl.innerText.trim();
-            const artist = artistEl ? artistEl.innerText.trim() : "";
-            const currentTrack = artist ? `${artist} - ${title}` : title;
-
-            if (currentTrack && currentTrack !== lastTrack) {
-                lastTrack = currentTrack;
-                sendTrack(currentTrack);
-            }
+        } catch (e) {
+            console.error('Ошибка в цикле медиа-сессии:', e);
         }
     }, 2000);
-
 })();
