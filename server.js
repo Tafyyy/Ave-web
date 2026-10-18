@@ -3,10 +3,9 @@ const session = require('express-session');
 const path = require('path');
 const crypto = require('crypto');
 const { Pool } = require('pg');
+const fs = require('fs');
 
 const app = express();
-
-const fs = require('fs');
 
 if (fs.existsSync('/etc/secrets/.env')) {
     require('dotenv').config({ path: '/etc/secrets/.env' });
@@ -53,7 +52,8 @@ async function initDB() {
                 salt TEXT DEFAULT 'v1',
                 active_token TEXT,
                 previous_token TEXT,
-                last_updated TEXT
+                last_updated TEXT,
+                lastfm_user TEXT
             );
         `);
         console.log('✅ Таблица пользователей в Supabase успешно инициализирована');
@@ -88,7 +88,6 @@ async function validateToken(token) {
         const expectedHmac = crypto.createHmac('sha256', TOKEN_SECRET).update(decoded).digest('hex').substring(0, 24);
         if (parts[2] !== expectedHmac) return null;
 
-        // Проверяем СТРОГО по активному токену
         const res = await pool.query(
             'SELECT * FROM users WHERE user_id = $1 AND active_token = $2',
             [userId, token]
@@ -147,7 +146,7 @@ const verifyToken = async (req, res, next) => {
         );
 
         if (resDb.rows.length === 0) {
-            return res.sendStatus(401); // Токен не найден или устарел
+            return res.sendStatus(401);
         }
 
         req.tokenData = {
@@ -269,7 +268,7 @@ app.get('/', async (req, res) => {
             <div class="main-wrapper">
                 <div class="container">
                     <h1>AVETRACKER</h1>
-                    <p>Вывод играющего трека из Яндекс Музыки прямо в ваш чат Twitch.</p>
+                    <p>Вывод играющего трека из Яндекс Музыки и Spotify прямо в ваш чат Twitch.</p>
                     
                     <div class="section">
                         <h2>Центр загрузок</h2>
@@ -295,23 +294,16 @@ app.get('/', async (req, res) => {
                     </h3>
 
                     <div class="step-block">
-                        <div class="step-title">🌐 Вариант А: Через браузер (UserScript)</div>
+                        <div class="step-title">🎧 Spotify (через Last.fm)</div>
                         <div class="step-text">
-                            <ol>
-                                <li>Установите расширение Tampermonkey.</li>
-                                <li>Нажмите <b>«Установить UserScript»</b> на главной странице и подтвердите установку.</li>
-                                <li>Войдите через Twitch, скопируйте токен и вставьте его при первом проигрывании трека.</li>
-                            </ol>
+                            Укажите ваш никнейм Last.fm в Личном кабинете. Музыка из Spotify будет считываться автоматически 24/7 без запуска ПК-приложений.
                         </div>
                     </div>
 
                     <div class="step-block">
-                        <div class="step-title">💻 Вариант Б: Приложение для Windows (.exe)</div>
+                        <div class="step-title">🌐 Яндекс Музыка (через ПК/браузер)</div>
                         <div class="step-text">
-                            <ol>
-                                <li>Скачайте и запустите <b>AVETRACKER.exe</b>.</li>
-                                <li>Скопируйте ваш токен из Личного кабинета и вставьте его при запуске.</li>
-                            </ol>
+                            Используйте приложение .exe или UserScript, указав токен из Личного кабинета.
                         </div>
                     </div>
 
@@ -352,11 +344,13 @@ app.get('/dashboard', async (req, res) => {
     const username = req.session.username;
     
     let token = '';
+    let lastfmUser = '';
     try {
-        const userRow = await pool.query('SELECT active_token, salt FROM users WHERE user_id = $1', [req.session.userId]);
-        if (userRow.rows.length > 0 && userRow.rows[0].active_token) {
-            token = userRow.rows[0].active_token;
-            req.session.salt = userRow.rows[0].salt;
+        const userRow = await pool.query('SELECT active_token, salt, lastfm_user FROM users WHERE user_id = $1', [req.session.userId]);
+        if (userRow.rows.length > 0) {
+            token = userRow.rows[0].active_token || '';
+            req.session.salt = userRow.rows[0].salt || 'v1';
+            lastfmUser = userRow.rows[0].lastfm_user || '';
         } else {
             const salt = req.session.salt || 'v1';
             token = createSecureToken(req.session.userId, username, salt);
@@ -379,7 +373,7 @@ app.get('/dashboard', async (req, res) => {
             <title>Личный кабинет - AVETRACKER</title>
             <style>
                 * { box-sizing: border-box; margin: 0; padding: 0; }
-                body { font-family: sans-serif; background: #0e0e10; color: #efeff1; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+                body { font-family: sans-serif; background: #0e0e10; color: #efeff1; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
                 .container { background: #18181b; border: 1px solid #2f2f35; border-radius: 12px; padding: 30px; max-width: 550px; width: 100%; text-align: left; }
                 .profile-header { display: flex; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #2f2f35; padding-bottom: 15px; }
                 h2 { color: #fff; font-size: 22px; }
@@ -405,7 +399,7 @@ app.get('/dashboard', async (req, res) => {
                     </div>
                 </div>
 
-                <label>Ваш постоянный токен:</label>
+                <label>Ваш постоянный токен (для ПК-приложения):</label>
                 <div class="input-group">
                     <input type="password" id="tokenInput" value="${token}" readonly onclick="this.select();">
                     <button class="btn-toggle" onclick="toggleTokenVisibility()">👁️ Показать</button>
@@ -414,6 +408,14 @@ app.get('/dashboard', async (req, res) => {
                 <div style="margin-top: 8px;">
                     <a href="/regenerate-token" class="btn" style="font-size: 11px; padding: 6px 12px; background: #3a3a42;" onclick="return confirm('Вы уверены? Старый токен перейдет в предыдущие, но старое приложение перестанет работать, пока вы не обновите токен там!');">🔄 Сгенерировать новый токен</a>
                 </div>
+
+                <form action="/api/save-lastfm" method="POST">
+                    <label>Никнейм на Last.fm (для Spotify):</label>
+                    <div class="input-group">
+                        <input type="text" name="lastfm_user" value="${lastfmUser}" placeholder="Ваш профиль Last.fm">
+                        <button type="submit" class="btn" style="background: #9146ff; color: #fff; margin:0;">Сохранить</button>
+                    </div>
+                </form>
 
                 <label>Команда для StreamElements (!трек):</label>
                 <input type="text" value="${streamElementsCommand}" readonly onclick="this.select();">
@@ -440,6 +442,29 @@ app.get('/dashboard', async (req, res) => {
         </body>
         </html>
     `);
+});
+
+app.post('/api/save-lastfm', async (req, res) => {
+    const cookies = getCookies(req);
+    const tokenData = await validateToken(cookies.avetracker_token);
+    
+    if (!tokenData) {
+        return res.status(401).send('Неавторизован');
+    }
+
+    let { lastfm_user } = req.body;
+    lastfm_user = lastfm_user ? lastfm_user.trim() : null;
+
+    try {
+        await pool.query(
+            'UPDATE users SET lastfm_user = $1 WHERE user_id = $2',
+            [lastfm_user, tokenData.userId]
+        );
+        res.redirect('/dashboard');
+    } catch (err) {
+        console.error('Ошибка сохранения Last.fm:', err);
+        res.status(500).send('Ошибка сервера');
+    }
 });
 
 app.get('/regenerate-token', async (req, res) => {
@@ -594,6 +619,54 @@ app.get('/api/track', (req, res) => {
 app.get('/api/ping', (req, res) => {
     res.status(200).send('PONG');
 });
+
+
+// ==========================================
+// ФОНОВЫЙ ОПРОС LAST.FM (ДЛЯ СПОТИФАЙ)
+// ==========================================
+async function pollLastFm() {
+    try {
+        const res = await pool.query('SELECT username, lastfm_user FROM users WHERE lastfm_user IS NOT NULL AND lastfm_user != \'\'');
+        
+        for (const row of res.rows) {
+            const username = row.username.toLowerCase();
+            const lfmUser = row.lastfm_user;
+            
+            try {
+                // Публичный API Last.fm (используем встроенный публичный ключ)
+                const url = `http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${encodeURIComponent(lfmUser)}&api_key=d52922709d73cb690236a291f09c00b0&format=json&limit=1`;
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                const tracks = data.recenttracks && data.recenttracks.track;
+                
+                if (tracks && tracks.length > 0) {
+                    const latest = tracks[0];
+                    const attr = latest['@attr'];
+                    const isPlaying = attr && attr.nowplaying === 'true';
+                    
+                    if (isPlaying) {
+                        const artist = (latest.artist && latest.artist['#text']) || '';
+                        const title = latest.name || '';
+                        const trackStr = artist ? `${artist} — ${title}` : title;
+                        
+                        if (currentMusic[username] !== trackStr) {
+                            currentMusic[username] = trackStr;
+                            console.log(`🎵 [LAST.FM] Стример: ${username} | Трек: ${trackStr}`);
+                        }
+                    }
+                }
+            } catch (err) {
+                // Тихо пропускаем сетевые сбои отдельных запросов
+            }
+        }
+    } catch (err) {
+        console.error('Ошибка фонового опроса Last.fm:', err);
+    }
+}
+
+// Запускаем фоновый опрос каждые 10 секунд
+setInterval(pollLastFm, 10000);
 
 
 // ==========================================
