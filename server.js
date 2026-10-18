@@ -88,8 +88,9 @@ async function validateToken(token) {
         const expectedHmac = crypto.createHmac('sha256', TOKEN_SECRET).update(decoded).digest('hex').substring(0, 24);
         if (parts[2] !== expectedHmac) return null;
 
+        // Проверяем СТРОГО по активному токену (предыдущий больше недействителен)
         const res = await pool.query(
-            'SELECT * FROM users WHERE user_id = $1 AND (active_token = $2 OR previous_token = $2)',
+            'SELECT * FROM users WHERE user_id = $1 AND active_token = $2',
             [userId, token]
         );
 

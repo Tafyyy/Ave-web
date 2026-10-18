@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AVETRACKER Yandex Music Tracker
 // @namespace    http://tampermonkey.net/
-// @version      4.0
-// @description  Автоматический трекер играющих треков из Яндекс Музыки для AVETRACKER Hub
+// @version      4.3
+// @description  Диагностический трекер для Яндекс Музыки
 // @author       Tafyyy
 // @match        https://music.yandex.ru/*
 // @match        https://music.yandex.com/*
@@ -16,10 +16,9 @@
 (function() {
     'use strict';
 
-    // Адрес вашего сервера на Render
-    const HUB_URL = "https://avetracker-hub.onrender.com/api/update-track";
+    console.log("🚀 AVETRACKER: Скрипт успешно запущен на странице!");
 
-    // Получаем токен из памяти
+    const HUB_URL = "https://avetracker-hub.onrender.com/api/update-track";
     let token = GM_getValue('avetracker_token', '');
 
     function setupToken() {
@@ -33,15 +32,9 @@
         }
     }
 
-    // Регистрация команды в меню Tampermonkey
     GM_registerMenuCommand('🔑 Изменить токен AVETRACKER', setupToken);
+    if (!token) setupToken();
 
-    // Если токена нет, сразу запрашиваем
-    if (!token) {
-        setupToken();
-    }
-
-    // Создание плавающей кнопки для смены токена прямо на странице
     function addTokenButton() {
         if (document.getElementById('ave-token-btn')) return;
 
@@ -49,27 +42,12 @@
         btn.id = 'ave-token-btn';
         btn.innerHTML = '🔑 AVETRACKER';
         btn.style.cssText = `
-            position: fixed;
-            bottom: 25px;
-            right: 25px;
-            z-index: 999999;
-            background: #9146ff;
-            color: #ffffff;
-            padding: 8px 14px;
-            border-radius: 20px;
-            font-family: sans-serif;
-            font-size: 12px;
-            font-weight: bold;
-            cursor: pointer;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.6);
-            user-select: none;
-            transition: transform 0.2s, background 0.2s;
+            position: fixed; bottom: 25px; right: 25px; z-index: 999999;
+            background: #9146ff; color: #ffffff; padding: 8px 14px;
+            border-radius: 20px; font-family: sans-serif; font-size: 12px;
+            font-weight: bold; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.6);
         `;
-
-        btn.onmouseover = () => { btn.style.background = '#772ce8'; btn.style.transform = 'scale(1.05)'; };
-        btn.onmouseout = () => { btn.style.background = '#9146ff'; btn.style.transform = 'scale(1)'; };
         btn.onclick = setupToken;
-
         document.body.appendChild(btn);
     }
 
@@ -79,45 +57,50 @@
         addTokenButton();
         if (!token) return;
 
+        let currentTrack = "Ничего не играет";
+
         try {
             if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
                 const metadata = navigator.mediaSession.metadata;
-                const title = metadata.title;
-                const artist = metadata.artist;
-
-                if (title && artist) {
-                    const trackString = `${artist} — ${title}`;
-
-                    if (trackString !== lastSentTrack) {
-                        lastSentTrack = trackString;
-                        console.log('🎵 Отправка трека:', trackString);
-
-                        GM_xmlhttpRequest({
-                            method: "POST",
-                            url: HUB_URL,
-                            headers: {
-                                "Content-Type": "application/json",
-                                "Authorization": `Bearer ${token}`
-                            },
-                            data: JSON.stringify({ track: trackString }),
-                            onload: function(res) {
-                                if (res.status === 200 || res.status === 201) {
-                                    console.log('✅ Трек успешно доставлен на сервер!');
-                                } else if (res.status === 401) {
-                                    alert('AVETRACKER: Токен недействителен!');
-                                    GM_setValue('avetracker_token', '');
-                                    setupToken();
-                                }
-                            },
-                            onerror: function(err) {
-                                console.error('❌ Ошибка отправки:', err);
-                            }
-                        });
-                    }
+                if (metadata.title && metadata.artist) {
+                    currentTrack = `${metadata.artist} — ${metadata.title}`;
                 }
             }
         } catch (e) {
-            console.error('Ошибка в цикле медиа-сессии:', e);
+            console.error("Ошибка чтения mediaSession:", e);
         }
-    }, 2000);
+
+        // Запасной вариант: если mediaSession пуст, пробуем вытащить текст из DOM заголовка страницы или плеера
+        if (currentTrack === "Ничего не играет") {
+            const pageTitle = document.title; // Обычно содержит "Трек — Исполнитель | Яндекс Музыка"
+            if (pageTitle && pageTitle.includes(" — ")) {
+                currentTrack = pageTitle.split(" — Яндекс Музыка")[0].trim();
+            }
+        }
+
+        console.log("🎵 Текущий статус трека:", currentTrack);
+
+        // Отправляем запрос на сервер каждые 5 секунд
+        GM_xmlhttpRequest({
+            method: "POST",
+            url: HUB_URL,
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            },
+            data: JSON.stringify({ track: currentTrack }),
+            onload: function(res) {
+                console.log("📡 Ответ сервера:", res.status, res.responseText);
+                if (res.status === 401) {
+                    console.warn('⚠️ AVETRACKER: Токен недействителен!');
+                    GM_setValue('avetracker_token', '');
+                    setupToken();
+                }
+            },
+            onerror: function(err) {
+                console.error('❌ Ошибка соединения с сервером:', err);
+            }
+        });
+    }, 5000);
+
 })();
