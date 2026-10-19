@@ -684,93 +684,78 @@ async function pollLastFm() {
 setInterval(pollLastFm, 10000);
 
 // ==========================================
-// ПРОКСИ ДЛЯ 7TV СМАЙЛИКОВ (АВТОПОИСК ID ПО НИКНЕЙМУ)
+// ПРОКСИ ДЛЯ 7TV СМАЙЛИКОВ (АВТОМАТИЧЕСКИЙ ПОИСК ПО TWITCH ID)
 // ==========================================
 const emotesCache = {};
-const CACHE_TTL = 10 * 60 * 1000; // 10 минут
+const CACHE_TTL = 10 * 60 * 1000; // Кэш на 10 минут
 
 app.get('/api/emotes/:channel', async (req, res) => {
     const channelName = req.params.channel.toLowerCase();
     const now = Date.now();
 
+    // Возвращаем из кэша, если данные свежие
     if (emotesCache[channelName] && (now - emotesCache[channelName].time < CACHE_TTL)) {
         return res.json(emotesCache[channelName].data);
     }
 
     try {
         let formattedEmotes = {};
-        let tvUserId = null;
+        let twitchUserId = null;
 
-        // Шаг 1. Ищем ID пользователя 7TV через официальный эндпоинт поиска/подключения Twitch
-        const searchRes = await fetch(`https://7tv.io/v3/users/twitch/${channelName}`);
-        if (searchRes.ok) {
-            const searchData = await searchRes.json();
-            // У 7TV в ответе может быть поле id самого юзера
-            if (searchData.id) {
-                tvUserId = searchData.id;
+        // 1. Узнаем Twitch ID канала через ivr.fi
+        try {
+            const ivrRes = await fetch(`https://api.ivr.fi/v2/twitch/user?login=${channelName}`);
+            if (ivrRes.ok) {
+                const ivrData = await ivrRes.json();
+                if (Array.isArray(ivrData) && ivrData.length > 0 && ivrData[0].id) {
+                    twitchUserId = ivrData[0].id;
+                }
+            }
+        } catch (e) {
+            console.warn(`[ivr.fi] Не удалось получить ID для ${channelName}:`, e.message);
+        }
+
+        // 2. Запрашиваем смайлы с 7TV по Twitch ID
+        if (twitchUserId) {
+            try {
+                const tvRes = await fetch(`https://7tv.io/v3/users/twitch/${twitchUserId}`);
+                if (tvRes.ok) {
+                    const tvData = await tvRes.json();
+                    const emoteSet = tvData.emote_set;
+                    if (emoteSet && emoteSet.emotes) {
+                        emoteSet.emotes.forEach(e => {
+                            if (e.name && e.data && e.data.host && e.data.host.url) {
+                                formattedEmotes[e.name] = `https:${e.data.host.url}/2x.webp`;
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn(`[7TV] Не удалось получить смайлы по ID ${twitchUserId}:`, e.message);
             }
         }
 
-        // Шаг 2. Если прямой эндпоинт не вернул ID, делаем запрос через GraphQL-поиск 7TV
-        if (!tvUserId) {
-            const gqlQuery = {
-                query: `
-                    query SearchUsers($query: String!) {
-                        users(query: $query, limit: 1) {
-                            items {
-                                id
-                                username
-                                connections {
-                                    platform
-                                    username
+        // 3. Резервный источник (если на 7TV ничего не нашлось)
+        if (Object.keys(formattedEmotes).length === 0) {
+            try {
+                const aggRes = await fetch(`https://emotes.adamcy.pl/v1/channel/${channelName}/emotes/all`);
+                if (aggRes.ok) {
+                    const aggData = await aggRes.json();
+                    if (Array.isArray(aggData)) {
+                        aggData.forEach(e => {
+                            if (e.code && e.urls) {
+                                const urlObj = e.urls.find(u => u.size === '2x') || e.urls[0];
+                                if (urlObj && urlObj.url) {
+                                    formattedEmotes[e.code] = urlObj.url;
                                 }
                             }
-                        }
-                    }
-                `,
-                variables: { query: channelName }
-            };
-
-            const gqlRes = await fetch('https://api.7tv.app/v3/gql', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(gqlQuery)
-            });
-
-            if (gqlRes.ok) {
-                const gqlData = await gqlRes.json();
-                const items = gqlData?.data?.users?.items;
-                if (items && items.length > 0) {
-                    // Ищем пользователя, у которого совпадает ник на Twitch
-                    const matchedUser = items.find(u => 
-                        u.connections && u.connections.some(c => c.platform === 'TWITCH' && c.username.toLowerCase() === channelName)
-                    ) || items[0]; // Или берем первый результат поиска, если точного совпадения по connections нет
-
-                    if (matchedUser && matchedUser.id) {
-                        tvUserId = matchedUser.id;
+                        });
                     }
                 }
-            }
+            } catch (e) {}
         }
 
-        // Шаг 3. Если ID успешно найден, забираем по нему набор смайлов
-        if (tvUserId) {
-            const userRes = await fetch(`https://7tv.io/v3/users/${tvUserId}`);
-            if (userRes.ok) {
-                const userData = await userRes.json();
-                const emoteSet = userData.emote_set;
-                
-                if (emoteSet && emoteSet.emotes) {
-                    emoteSet.emotes.forEach(e => {
-                        if (e.name && e.data && e.data.host && e.data.host.url) {
-                            formattedEmotes[e.name] = `https:${e.data.host.url}/2x.webp`;
-                        }
-                    });
-                }
-            }
-        }
-
-        console.log(`🔍 [7TV AutoSearch] Канал: "${channelName}" -> ID: ${tvUserId || 'не найден'} -> Смайлов: ${Object.keys(formattedEmotes).length}`);
+        console.log(`✅ [7TV Server] Канал "${channelName}" (Twitch ID: ${twitchUserId || 'N/A'}) -> Смайлов: ${Object.keys(formattedEmotes).length}`);
 
         emotesCache[channelName] = {
             time: now,
@@ -783,7 +768,6 @@ app.get('/api/emotes/:channel', async (req, res) => {
         res.status(500).json({});
     }
 });
-
 // ==========================================
 // СТАТИКА И ЗАПУСК СЕРВЕРА
 // ==========================================
