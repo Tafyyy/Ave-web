@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Twitch Chat Overlay</title>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -52,51 +52,37 @@
         }
         .username-badge {
             background-color: #0d0d0d; color: #ffffff; padding: 4px 12px;
-            border-radius: 20px; font-weight: 800; font-size: 16px;
-            letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 6px;
+            border-radius: 20px; font-weight: 700; font-size: 15px;
+            letter-spacing: 0.3px; display: inline-flex; align-items: center; gap: 6px;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5); border: 1px solid rgba(255, 255, 255, 0.1);
-            margin-bottom: 6px;
+            margin-bottom: 4px;
         }
         .badge-icon { height: 18px; width: auto; border-radius: 2px; display: inline-block; vertical-align: middle; }
-        .message-content-wrapper { display: flex; align-items: flex-start; padding-left: 48px; }
+        .message-content-wrapper { display: flex; align-items: flex-start; padding-left: 12px; }
+        
         .message-text {
-            color: #ffffff; font-size: 18px; font-weight: 700; line-height: 1.35; word-break: break-word;
-            text-shadow: -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0px 3px 8px rgba(0,0,0,0.9);
+            color: #ffffff;
+            font-size: 18px;
+            font-weight: 500;
+            line-height: 1.35;
+            word-break: break-word;
+            text-shadow: 
+                -1.5px -1.5px 0 #000,  
+                 1.5px -1.5px 0 #000,
+                -1.5px  1.5px 0 #000,
+                 1.5px  1.5px 0 #000,
+                 0px    2px   4px rgba(0,0,0,0.8);
         }
         .emote { display: inline-block; height: 32px; vertical-align: middle; margin: -4px 2px; }
 
-        /* ==========================================
-           ЭФФЕКТЫ И МОДИФИКАТОРЫ BTTV / FFZ / 7TV
-           ========================================== */
-        .emote-wrapper {
-            position: relative;
-            display: inline-block;
-            vertical-align: middle;
-        }
-        .emote-wrapper img.emote {
-            margin: 0;
-        }
-        .emote-wrapper img.emote-zw {
-            position: absolute;
-            top: 0;
-            left: 50%;
-            transform: translateX(-50%);
-            pointer-events: none;
-            height: 100%;
-        }
-        .emote-wide {
-            transform: scaleX(2);
-            margin: 0 12px !important;
-        }
-        .emote-flip-x {
-            transform: scaleX(-1);
-        }
-        .emote-flip-y {
-            transform: scaleY(-1);
-        }
-        .emote-shake {
-            animation: bttv-shake 0.2s infinite ease-in-out;
-        }
+        /* Эффекты и модификаторы BTTV / FFZ / 7TV */
+        .emote-wrapper { position: relative; display: inline-block; vertical-align: middle; }
+        .emote-wrapper img.emote { margin: 0; }
+        .emote-wrapper img.emote-zw { position: absolute; top: 0; left: 50%; transform: translateX(-50%); pointer-events: none; height: 100%; }
+        .emote-wide { transform: scaleX(2); margin: 0 12px !important; }
+        .emote-flip-x { transform: scaleX(-1); }
+        .emote-flip-y { transform: scaleY(-1); }
+        .emote-shake { animation: bttv-shake 0.2s infinite ease-in-out; }
         @keyframes bttv-shake {
             0% { transform: translate(0, 0) rotate(0deg); }
             25% { transform: translate(-2px, 1px) rotate(-2deg); }
@@ -104,13 +90,8 @@
             75% { transform: translate(-1px, -2px) rotate(-1deg); }
             100% { transform: translate(1px, 2px) rotate(1deg); }
         }
-        .emote-spin {
-            animation: bttv-spin 2s linear infinite;
-        }
-        @keyframes bttv-spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
+        .emote-spin { animation: bttv-spin 2s linear infinite; }
+        @keyframes bttv-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -138,30 +119,22 @@
             document.getElementById('controls').style.display = 'none';
         }
 
-        // Загрузка 7TV смайлов с защитой от тихих сбоев
         async function load7TVEmotes(channelName) {
             console.log(`[7TV] Запрос смайлов для канала: ${channelName}...`);
             try {
                 const url = `/api/emotes/${channelName}`;
-                console.log(`[7TV] Шлю запрос по адресу: ${url}`);
-                
                 const res = await fetch(url);
-                console.log(`[7TV] Статус ответа сервера:`, res.status);
-
                 if (res.ok) {
                     SevenTVEmotes = await res.json();
-                    const count = Object.keys(SevenTVEmotes).length;
-                    console.log(`[7TV] Успешно загружено смайлов: ${count}`, SevenTVEmotes);
+                    console.log(`[7TV] Успешно загружено смайлов: ${Object.keys(SevenTVEmotes).length}`);
                 } else {
-                    const errText = await res.text();
-                    console.error(`[7TV] Ошибка сервера (${res.status}):`, errText);
+                    console.error(`[7TV] Ошибка сервера (${res.status})`);
                 }
             } catch (e) {
                 console.error(`[7TV] КРИТИЧЕСКАЯ ОШИБКА FETCH:`, e);
             }
         }
 
-        // Загрузка значков канала
         async function loadBadges(channelName) {
             console.log(`[Badges] Запрос значков для канала: ${channelName}...`);
             try {
@@ -307,15 +280,10 @@
 
             if (ws) ws.close();
 
-            console.log(`🚀 [Init] Начало инициализации для канала: #${currentChannel}`);
-
-            // 1. Параллельно подгружаем смайлы и значки
             await Promise.all([
                 load7TVEmotes(currentChannel),
                 loadBadges(currentChannel)
             ]);
-
-            console.log(`🔌 [WebSocket] Подключение к серверам Twitch IRC...`);
 
             ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
 
@@ -325,9 +293,6 @@
                 ws.send('NICK justinfan' + Math.floor(Math.random() * 89999 + 10000));
                 ws.send(`JOIN #${currentChannel}`);
 
-                console.log(`✅ [WebSocket] Успешно подключено к чату #${currentChannel}! Все ресурсы загружены.`);
-                
-                // Меняем текст кнопки и стиль
                 btn.textContent = "Подключено";
                 btn.classList.add('connected');
             };
@@ -356,7 +321,6 @@
             };
 
             ws.onclose = () => { 
-                console.warn(`⚠️ [WebSocket] Соединение разорвано. Переподключение через 3 секунды...`);
                 btn.textContent = "Переподключение...";
                 btn.classList.remove('connected');
                 setTimeout(initChat, 3000); 
