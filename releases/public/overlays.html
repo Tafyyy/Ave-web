@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Оверлей чата - AVETRACKER</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background-color: #0e0e10; 
+            color: #efeff1; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { 
+            background-color: #18181b; 
+            border: 1px solid #2f2f35; 
+            border-radius: 12px; 
+            padding: 40px; 
+            max-width: 600px; 
+            width: 100%; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        h1 { color: #9146ff; font-size: 28px; margin-bottom: 8px; font-weight: 800; }
+        p.subtitle { color: #adadb8; font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
+        
+        .form-group { margin-bottom: 20px; }
+        label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #bf94ff; }
+        input[type="text"] {
+            width: 100%;
+            background: #0e0e10;
+            border: 1px solid #2f2f35;
+            color: #fff;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 15px;
+            outline: none;
+            font-family: inherit;
+        }
+        input[type="text"]:focus { border-color: #9146ff; }
+
+        .chat-cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .chat-card {
+            background: #212125;
+            border: 2px solid #2f2f35;
+            border-radius: 10px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .chat-card:hover { border-color: #3a3a42; }
+        .chat-card.selected {
+            border-color: #9146ff;
+            background: rgba(145, 70, 255, 0.08);
+        }
+        .chat-card h3 { font-size: 16px; margin-bottom: 6px; font-weight: 700; color: #fff; }
+        .chat-card p { font-size: 12px; color: #adadb8; line-height: 1.4; }
+
+        .output-box {
+            background: #0e0e10;
+            border: 1px solid #2f2f35;
+            border-radius: 8px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .url-display {
+            font-family: monospace;
+            font-size: 12px;
+            color: #00ffcc;
+            word-break: break-all;
+            background: #18181b;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #2f2f35;
+        }
+        .btn-row { display: flex; gap: 10px; }
+        .btn { 
+            flex: 1; 
+            background-color: #9146ff; 
+            color: white; 
+            padding: 11px 16px; 
+            text-decoration: none; 
+            border-radius: 8px; 
+            font-weight: 600; 
+            font-size: 14px; 
+            border: none; 
+            cursor: pointer; 
+            text-align: center;
+            transition: background 0.2s;
+        }
+        .btn:hover { background-color: #772ce8; }
+        .btn-secondary { background-color: #2f2f35; color: #efeff1; }
+        .btn-secondary:hover { background-color: #3a3a42; }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            color: #bf94ff;
+            font-size: 13px;
+            text-decoration: none;
+        }
+        .back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Оверлей чата для OBS</h1>
+        <p class="subtitle">Выберите визуальный стиль чата, введите ваш никнейм и скопируйте готовую ссылку для источника «Браузер» в OBS.</p>
+
+        <div class="form-group">
+            <label for="channelName">Никнейм вашего канала на Twitch:</label>
+            <input type="text" id="channelName" value="avetafyyy" placeholder="например, bratishkinoff" oninput="updateLinks()">
+        </div>
+
+        <label>Дизайн чата:</label>
+        <div class="chat-cards">
+            <div class="chat-card selected" id="card-ave" onclick="selectChat('ave_chat')">
+                <h3>Ave Chat</h3>
+                <p>Фирменный стиль с аватарами/бэджами и аккуратной обводкой текста.</p>
+            </div>
+            <div class="chat-card" id="card-classic" onclick="selectChat('classic_chat')">
+                <h3>Classic Chat</h3>
+                <p>Классический полупрозрачный чат Twitch с цветными никами.</p>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Ссылка для OBS Browser Source:</label>
+            <div class="output-box">
+                <div class="url-display" id="urlOutput">https://...</div>
+                <div class="btn-row">
+                    <button class="btn" onclick="copyUrl()">Копировать ссылку</button>
+                    <button class="btn btn-secondary" onclick="openPreview()">Предпросмотр</button>
+                </div>
+            </div>
+        </div>
+
+        <a href="/" class="back-link">← На главную</a>
+    </div>
+
+    <script>
+        let selectedChatType = 'ave_chat';
+
+        function selectChat(type) {
+            selectedChatType = type;
+            document.getElementById('card-ave').classList.remove('selected');
+            document.getElementById('card-classic').classList.remove('selected');
+            
+            if (type === 'ave_chat') {
+                document.getElementById('card-ave').classList.add('selected');
+            } else {
+                document.getElementById('card-classic').classList.add('selected');
+            }
+            updateLinks();
+        }
+
+        function updateLinks() {
+            const channel = document.getElementById('channelName').value.trim().toLowerCase() || 'avetafyyy';
+            // Выбираем файл в зависимости от выбранного стиля чата
+            const fileName = selectedChatType === 'ave_chat' ? 'chat.html' : 'classic_chat.html';
+            
+            const baseUrl = window.location.origin;
+            const finalUrl = `${baseUrl}/${fileName}?channel=${channel}&hideControls=1`;
+            
+            document.getElementById('urlOutput').textContent = finalUrl;
+        }
+
+        function copyUrl() {
+            const urlText = document.getElementById('urlOutput').textContent;
+            navigator.clipboard.writeText(urlText).then(() => {
+                alert('Ссылка успешно скопирована в буфер обмена!');
+            });
+        }
+
+        function openPreview() {
+            const urlText = document.getElementById('urlOutput').textContent;
+            window.open(urlText.replace('&hideControls=1', ''), '_blank');
+        }
+
+        updateLinks();
+    </script>
+</body>
+</html>

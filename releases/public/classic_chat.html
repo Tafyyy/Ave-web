@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twitch Classic Chat Overlay</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: transparent;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 12px;
+        }
+        #controls {
+            position: fixed; top: 10px; left: 10px;
+            background: rgba(0, 0, 0, 0.85); color: #fff;
+            padding: 10px 14px; border-radius: 8px; z-index: 9999;
+            font-size: 13px; display: flex; gap: 10px; align-items: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1);
+        }
+        #controls input {
+            background: #222; border: 1px solid #444; color: #fff;
+            padding: 4px 8px; border-radius: 4px; font-family: inherit;
+        }
+        #controls button {
+            background: #9146FF; color: white; border: none;
+            padding: 5px 10px; border-radius: 4px; cursor: pointer; font-weight: bold;
+        }
+        #controls button.connected { background: #238539; cursor: default; }
+
+        #chat-container {
+            display: flex; flex-direction: column; gap: 8px; max-width: 450px; width: 100%;
+        }
+
+        /* Классическое сообщение: идет строкой (ник и текст рядом) */
+        .chat-message {
+            display: flex;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            padding: 6px 10px;
+            background: rgba(0, 0, 0, 0.45);
+            border-radius: 6px;
+            animation: fadeIn 0.2s ease-out forwards;
+            word-break: break-word;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Значки перед ником */
+        .badges-container {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+        .badge-icon { height: 16px; width: auto; border-radius: 2px; vertical-align: middle; }
+
+        /* Никнейм пользователя */
+        .username {
+            font-weight: 700;
+            font-size: 14px;
+            margin-right: 6px;
+            cursor: pointer;
+        }
+
+        /* Текст сообщения */
+        .message-text {
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 400;
+            line-height: 1.4;
+            display: inline;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.9);
+        }
+
+        /* Смайлики */
+        .emote { display: inline-block; height: 24px; vertical-align: middle; margin: -2px 2px; }
+
+        /* Эффекты и модификаторы BTTV / FFZ / 7TV */
+        .emote-wrapper { position: relative; display: inline-block; vertical-align: middle; }
+        .emote-wrapper img.emote { margin: 0; }
+        .emote-wrapper img.emote-zw { position: absolute; top: 0; left: 50%; transform: translateX(-50%); pointer-events: none; height: 100%; }
+        .emote-wide { transform: scaleX(2); margin: 0 8px !important; }
+        .emote-flip-x { transform: scaleX(-1); }
+        .emote-flip-y { transform: scaleY(-1); }
+        .emote-shake { animation: bttv-shake 0.2s infinite ease-in-out; }
+        @keyframes bttv-shake {
+            0% { transform: translate(0, 0) rotate(0deg); }
+            25% { transform: translate(-2px, 1px) rotate(-2deg); }
+            50% { transform: translate(2px, -1px) rotate(2deg); }
+            75% { transform: translate(-1px, -2px) rotate(-1deg); }
+            100% { transform: translate(1px, 2px) rotate(1deg); }
+        }
+        .emote-spin { animation: bttv-spin 2s linear infinite; }
+        @keyframes bttv-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div id="controls">
+        <label>Канал: <input type="text" id="channelInput" value="avetafyyy"></label>
+        <button id="connectBtn" onclick="initChat()">Подключить</button>
+    </div>
+
+    <div id="chat-container"></div>
+
+    <script>
+        let ws = null;
+        let currentChannel = "avetafyyy";
+        let channelBadges = {};
+        let SevenTVEmotes = {};
+
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('channel')) {
+            currentChannel = urlParams.get('channel').toLowerCase();
+            document.getElementById('channelInput').value = currentChannel;
+        }
+
+        if (window.obsstudio || urlParams.has('hideControls')) {
+            document.getElementById('controls').style.display = 'none';
+        }
+
+        async function load7TVEmotes(channelName) {
+            try {
+                const res = await fetch(`/api/emotes/${channelName}`);
+                if (res.ok) {
+                    SevenTVEmotes = await res.json();
+                }
+            } catch (e) {
+                console.error(`[7TV] Error:`, e);
+            }
+        }
+
+        async function loadBadges(channelName) {
+            try {
+                const res = await fetch(`https://api.ivr.fi/v2/twitch/badges/channel?login=${channelName}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    data.forEach(b => {
+                        channelBadges[b.set_id] = {};
+                        b.versions.forEach(v => {
+                            channelBadges[b.set_id][v.id] = v.image_url_2x || v.image_url_1x;
+                        });
+                    });
+                }
+            } catch (e) {}
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
+        function parseMessageEmotes(text, rawTwitchEmotes) {
+            let replacements = [];
+
+            if (rawTwitchEmotes) {
+                const emoteEntries = rawTwitchEmotes.split('/');
+                for (const entry of emoteEntries) {
+                    if (!entry) continue;
+                    const [emoteId, positions] = entry.split(':');
+                    if (!positions) continue;
+                    
+                    const posList = positions.split(',');
+                    for (const pos of posList) {
+                        const [start, end] = pos.split('-').map(Number);
+                        const emoteCode = text.substring(start, end + 1);
+                        replacements.push({
+                            start,
+                            end,
+                            html: `<img class="emote" src="https://static-cdn.jtvnw.net/emoticons/v2/${emoteId}/default/dark/2.0" alt="${escapeHtml(emoteCode)}">`
+                        });
+                    }
+                }
+            }
+
+            replacements.sort((a, b) => b.start - a.start);
+
+            let htmlResult = text;
+            for (const rep of replacements) {
+                const before = htmlResult.substring(0, rep.start);
+                const after = htmlResult.substring(rep.end + 1);
+                htmlResult = before + rep.html + after;
+            }
+
+            const words = htmlResult.split(' ');
+            let parsedWords = [];
+
+            for (let i = 0; i < words.length; i++) {
+                let word = words[i];
+                let isEmote = word.includes('<img');
+                let emoteHtml = '';
+
+                if (!isEmote) {
+                    const cleanWord = word.trim();
+                    if (SevenTVEmotes[cleanWord]) {
+                        const emoteData = SevenTVEmotes[cleanWord];
+                        const isZeroWidth = typeof emoteData === 'object' && emoteData.isZeroWidth;
+                        const src = typeof emoteData === 'object' ? emoteData.url : emoteData;
+
+                        emoteHtml = `<img class="emote ${isZeroWidth ? 'emote-zw' : ''}" src="${src}" alt="${escapeHtml(cleanWord)}">`;
+                        isEmote = true;
+                    }
+                } else {
+                    emoteHtml = word;
+                }
+
+                if (isEmote) {
+                    let extraClasses = [];
+                    while (i + 1 < words.length) {
+                        const nextWord = words[i + 1].trim().toLowerCase();
+                        if (nextWord === 'w!') { extraClasses.push('emote-wide'); i++; }
+                        else if (nextWord === 'h!') { extraClasses.push('emote-flip-x'); i++; }
+                        else if (nextWord === 'v!') { extraClasses.push('emote-flip-y'); i++; }
+                        else if (nextWord === 's!') { extraClasses.push('emote-shake'); i++; }
+                        else if (nextWord === 'c!') { extraClasses.push('emote-spin'); i++; }
+                        else { break; }
+                    }
+
+                    if (extraClasses.length > 0) {
+                        emoteHtml = emoteHtml.replace('class="emote', `class="emote ${extraClasses.join(' ')}`);
+                    }
+
+                    parsedWords.push(emoteHtml);
+                } else {
+                    parsedWords.push(escapeHtml(word));
+                }
+            }
+
+            return parsedWords.join(' ');
+        }
+
+        function renderMessage(username, messageText, rawBadges = '', rawEmotes = '', userColor = '#9146FF') {
+            const container = document.getElementById('chat-container');
+            const messageEl = document.createElement('div');
+            messageEl.className = 'chat-message';
+
+            let badgesHtml = '';
+            if (rawBadges) {
+                const badgePairs = rawBadges.split(',');
+                for (const pair of badgePairs) {
+                    const [badgeName, version] = pair.split('/');
+                    if (channelBadges[badgeName] && channelBadges[badgeName][version]) {
+                        badgesHtml += `<img class="badge-icon" src="${channelBadges[badgeName][version]}" alt="${badgeName}">`;
+                    }
+                }
+            }
+
+            const formattedText = parseMessageEmotes(messageText, rawEmotes);
+            const safeColor = userColor || '#9146FF';
+
+            messageEl.innerHTML = `
+                <div class="badges-container">${badgesHtml}</div>
+                <span class="username" style="color: ${safeColor};">${escapeHtml(username)}:</span>
+                <div class="message-text">${formattedText}</div>
+            `;
+
+            container.appendChild(messageEl);
+            if (container.children.length > 15) container.removeChild(container.firstChild);
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+
+        async function initChat() {
+            const inputVal = document.getElementById('channelInput').value.temp?.trim().toLowerCase() || document.getElementById('channelInput').value.trim().toLowerCase();
+            if (inputVal) currentChannel = inputVal;
+
+            const btn = document.getElementById('connectBtn');
+            btn.textContent = "Загрузка...";
+            btn.classList.remove('connected');
+
+            if (ws) ws.close();
+
+            await Promise.all([
+                load7TVEmotes(currentChannel),
+                loadBadges(currentChannel)
+            ]);
+
+            ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+
+            ws.onopen = () => {
+                ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+                ws.send('PASS oauth:none');
+                ws.send('NICK justinfan' + Math.floor(Math.random() * 89999 + 10000));
+                ws.send(`JOIN #${currentChannel}`);
+
+                btn.textContent = "Подключено";
+                btn.classList.add('connected');
+            };
+
+            ws.onmessage = (event) => {
+                const messages = event.data.split('\r\n');
+                for (const message of messages) {
+                    if (!message) continue;
+                    
+                    if (message.startsWith('PING')) {
+                        ws.send('PONG :tmi.twitch.tv');
+                        continue;
+                    }
+
+                    if (message.includes('PRIVMSG')) {
+                        const badgeMatch = message.match(/badges=([^;]+)/);
+                        const emotesMatch = message.match(/emotes=([^;]+)/);
+                        const colorMatch = message.match(/color=([^;]+)/);
+                        const nickMatch = message.match(/display-name=([^;]+)/) || message.match(/:(\w+)!\w+@/);
+                        const msgMatch = message.match(/PRIVMSG #[^ ]+ :(.*)/);
+
+                        if (nickMatch && msgMatch) {
+                            const color = colorMatch ? colorMatch[1] : '#9146FF';
+                            renderMessage(
+                                nickMatch[1], 
+                                msgMatch[1].trim(), 
+                                badgeMatch ? badgeMatch[1] : '', 
+                                emotesMatch ? emotesMatch[1] : '',
+                                color
+                            );
+                        }
+                    }
+                }
+            };
+
+            ws.onclose = () => { 
+                btn.textContent = "Переподключение...";
+                btn.classList.remove('connected');
+                setTimeout(initChat, 3000); 
+            };
+        }
+
+        initChat();
+    </script>
+</body>
+</html>
