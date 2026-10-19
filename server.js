@@ -41,7 +41,6 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false }
 });
 
-// Инициализация таблицы пользователей при старте сервера
 async function initDB() {
     try {
         await pool.query(`
@@ -132,7 +131,6 @@ function getCookies(req) {
     return list;
 }
 
-// Middleware для проверки токена через базу данных
 const verifyToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -213,6 +211,7 @@ app.get('/', async (req, res) => {
                 p { color: #adadb8; font-size: 15px; line-height: 1.6; margin-bottom: 25px; }
                 .section { margin-top: 25px; padding-top: 25px; border-top: 1px solid #2f2f35; }
                 .section h2 { font-size: 18px; margin-bottom: 15px; color: #ffffff; }
+                .section p.desc { font-size: 13px; color: #adadb8; margin-bottom: 12px; }
                 .btn { display: inline-block; background-color: #9146ff; color: white; padding: 12px 22px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; margin: 6px 4px; transition: background 0.2s; }
                 .btn:hover { background-color: #772ce8; }
                 .btn-secondary { background-color: #2f2f35; color: #efeff1; }
@@ -278,6 +277,15 @@ app.get('/', async (req, res) => {
                         </div>
                         <div>
                             <span class="info-link" onclick="toggleInstruction()">📖 Инструкция по установке и настройке</span>
+                        </div>
+                    </div>
+
+                    <!-- НОВЫЙ РАЗДЕЛ С ОВЕРЛЕЯМИ ЧАТА -->
+                    <div class="section">
+                        <h2>Оверлей чата для стрима</h2>
+                        <p class="desc">Подключение чата Twitch в OBS со смайликами 7TV и поддержкой спецэффектов (тряска, вращение, wide).</p>
+                        <div>
+                            <a href="/overlays.html" class="btn btn-secondary">⚙️ Выбрать дизайн чата</a>
                         </div>
                     </div>
 
@@ -510,18 +518,6 @@ app.get('/logout', (req, res) => {
     });
 });
 
-
-// ==========================================
-// МАРШРУТ ДЛЯ ЧАТА ОБС (chat.html)
-// ==========================================
-app.get('/chat.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'releases', 'public', 'chat.html'));
-});
-
-
-// ==========================================
-// АВТОРИЗАЦИЯ ЧЕРЕЗ TWITCH (OAuth2)
-// ==========================================
 app.get('/auth/twitch', (req, res) => {
     const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${TWITCH_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=user:read:email`;
     res.redirect(authUrl);
@@ -598,11 +594,6 @@ app.get('/auth/twitch/callback', async (req, res) => {
     }
 });
 
-
-// ==========================================
-// API ДЛЯ ПРИЛОЖЕНИЯ И ЧАТА
-// ==========================================
-
 app.post('/api/update-track', verifyToken, (req, res) => {
     let { track } = req.body;
     const username = req.tokenData.username;
@@ -628,10 +619,6 @@ app.get('/api/ping', (req, res) => {
     res.status(200).send('PONG');
 });
 
-
-// ==========================================
-// ФОНОВЫЙ ОПРОС LAST.FM (ДЛЯ СПОТИФАЙ)
-// ==========================================
 async function pollLastFm() {
     try {
         const res = await pool.query("SELECT username, lastfm_user FROM users WHERE lastfm_user IS NOT NULL AND lastfm_user != ''");
@@ -655,13 +642,10 @@ async function pollLastFm() {
                     const latest = tracks[0];
                     const attr = latest['@attr'];
                     
-                    // СТРОГАЯ ПРОВЕРКА: Если песня НЕ играет прямо сейчас в Spotify, 
-                    // мы вообще ничего не делаем и оставляем currentMusic в покое (не перезаписываем).
                     if (!attr || attr.nowplaying !== 'true') {
                         continue; 
                     }
 
-                    // Если действительно играет Spotify прямо сейчас:
                     const artist = (latest.artist && (latest.artist['#text'] || latest.artist.name)) || '';
                     const title = latest.name || '';
                     const trackStr = artist ? `${artist} — ${title}` : title;
@@ -671,29 +655,22 @@ async function pollLastFm() {
                         console.log(`🎵 [LAST.FM ACTIVE] Стример: ${username} | Трек: ${trackStr}`);
                     }
                 }
-            } catch (err) {
-                // Игнорируем сетевые ошибки
-            }
+            } catch (err) {}
         }
     } catch (err) {
         console.error('❌ [LAST.FM DB ERROR]:', err.message);
     }
 }
 
-// Запускаем опрос каждые 10 секунд
 setInterval(pollLastFm, 10000);
 
-// ==========================================
-// ПРОКСИ ДЛЯ 7TV СМАЙЛИКОВ (АВТОМАТИЧЕСКИЙ ПОИСК ПО TWITCH ID)
-// ==========================================
 const emotesCache = {};
-const CACHE_TTL = 10 * 60 * 1000; // Кэш на 10 минут
+const CACHE_TTL = 10 * 60 * 1000;
 
 app.get('/api/emotes/:channel', async (req, res) => {
     const channelName = req.params.channel.toLowerCase();
     const now = Date.now();
 
-    // Возвращаем из кэша, если данные свежие
     if (emotesCache[channelName] && (now - emotesCache[channelName].time < CACHE_TTL)) {
         return res.json(emotesCache[channelName].data);
     }
@@ -702,7 +679,6 @@ app.get('/api/emotes/:channel', async (req, res) => {
         let formattedEmotes = {};
         let twitchUserId = null;
 
-        // 1. Узнаем Twitch ID канала через ivr.fi
         try {
             const ivrRes = await fetch(`https://api.ivr.fi/v2/twitch/user?login=${channelName}`);
             if (ivrRes.ok) {
@@ -711,11 +687,8 @@ app.get('/api/emotes/:channel', async (req, res) => {
                     twitchUserId = ivrData[0].id;
                 }
             }
-        } catch (e) {
-            console.warn(`[ivr.fi] Не удалось получить ID для ${channelName}:`, e.message);
-        }
+        } catch (e) {}
 
-        // 2. Запрашиваем смайлы с 7TV по Twitch ID
         if (twitchUserId) {
             try {
                 const tvRes = await fetch(`https://7tv.io/v3/users/twitch/${twitchUserId}`);
@@ -730,12 +703,9 @@ app.get('/api/emotes/:channel', async (req, res) => {
                         });
                     }
                 }
-            } catch (e) {
-                console.warn(`[7TV] Не удалось получить смайлы по ID ${twitchUserId}:`, e.message);
-            }
+            } catch (e) {}
         }
 
-        // 3. Резервный источник (если на 7TV ничего не нашлось)
         if (Object.keys(formattedEmotes).length === 0) {
             try {
                 const aggRes = await fetch(`https://emotes.adamcy.pl/v1/channel/${channelName}/emotes/all`);
@@ -755,8 +725,6 @@ app.get('/api/emotes/:channel', async (req, res) => {
             } catch (e) {}
         }
 
-        console.log(`✅ [7TV Server] Канал "${channelName}" (Twitch ID: ${twitchUserId || 'N/A'}) -> Смайлов: ${Object.keys(formattedEmotes).length}`);
-
         emotesCache[channelName] = {
             time: now,
             data: formattedEmotes
@@ -764,13 +732,10 @@ app.get('/api/emotes/:channel', async (req, res) => {
 
         res.json(formattedEmotes);
     } catch (err) {
-        console.error('❌ [7TV Server Error]:', err.message);
         res.status(500).json({});
     }
 });
-// ==========================================
-// СТАТИКА И ЗАПУСК СЕРВЕРА
-// ==========================================
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;
