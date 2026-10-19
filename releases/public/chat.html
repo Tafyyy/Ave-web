@@ -86,20 +86,21 @@
             document.getElementById('controls').style.display = 'none';
         }
 
-        // Загрузка 7TV смайлов через ваш собственный сервер (без блокировок и CORS)
+        // Загрузка 7TV смайлов с вашего сервера
         async function load7TVEmotes(channelName) {
             SevenTVEmotes = {};
             try {
                 const res = await fetch(`/api/emotes/${channelName}`);
                 if (res.ok) {
                     SevenTVEmotes = await res.json();
-                    console.log(`Загружено 7TV смайлов с сервера: ${Object.keys(SevenTVEmotes).length}`);
+                    console.log(`✅ Загружено 7TV смайлов: ${Object.keys(SevenTVEmotes).length}`);
                 }
             } catch (e) {
                 console.warn("Не удалось загрузить 7TV смайлы:", e);
             }
         }
 
+        // Загрузка значков канала
         async function loadBadges(channelName) {
             try {
                 const res = await fetch(`https://api.ivr.fi/v2/twitch/badges/channel?login=${channelName}`);
@@ -119,55 +120,29 @@
             return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         }
 
+        // Безопасный парсер эмоутов
         function parseMessageEmotes(text, rawTwitchEmotes) {
-    let replacements = [];
+            let replacements = [];
 
-    // 1. Twitch эмоуты
-    if (rawTwitchEmotes) {
-        const emoteEntries = rawTwitchEmotes.split('/');
-        for (const entry of emoteEntries) {
-            if (!entry) continue;
-            const [emoteId, positions] = entry.split(':');
-            if (!positions) continue;
-            
-            const posList = positions.split(',');
-            for (const pos of posList) {
-                const [start, end] = pos.split('-').map(Number);
-                const emoteCode = text.substring(start, end + 1);
-                replacements.push({
-                    start,
-                    end,
-                    html: `<img class="emote" src="https://static-cdn.jtvnw.net/emoticons/v2/${emoteId}/default/dark/2.0" alt="${escapeHtml(emoteCode)}">`
-                });
+            if (rawTwitchEmotes) {
+                const emoteEntries = rawTwitchEmotes.split('/');
+                for (const entry of emoteEntries) {
+                    if (!entry) continue;
+                    const [emoteId, positions] = entry.split(':');
+                    if (!positions) continue;
+                    
+                    const posList = positions.split(',');
+                    for (const pos of posList) {
+                        const [start, end] = pos.split('-').map(Number);
+                        const emoteCode = text.substring(start, end + 1);
+                        replacements.push({
+                            start,
+                            end,
+                            html: `<img class="emote" src="https://static-cdn.jtvnw.net/emoticons/v2/${emoteId}/default/dark/2.0" alt="${escapeHtml(emoteCode)}">`
+                        });
+                    }
+                }
             }
-        }
-    }
-
-    replacements.sort((a, b) => b.start - a.start);
-
-    let htmlResult = text;
-    for (const rep of replacements) {
-        const before = htmlResult.substring(0, rep.start);
-        const after = htmlResult.substring(rep.end + 1);
-        htmlResult = before + rep.html + after;
-    }
-
-    // 2. 7TV эмоуты по точным словам
-    const words = htmlResult.split(' ');
-    const finalWords = words.map(word => {
-        if (word.startsWith('<img')) return word;
-        
-        // Очищаем слово от базовых пробелов
-        const cleanWord = word.trim();
-        
-        if (SevenTVEmotes[cleanWord]) {
-            return `<img class="emote" src="${SevenTVEmotes[cleanWord]}" alt="${escapeHtml(cleanWord)}">`;
-        }
-        return escapeHtml(word);
-    });
-
-    return finalWords.join(' ');
-}
 
             replacements.sort((a, b) => b.start - a.start);
 
