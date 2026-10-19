@@ -32,6 +32,11 @@
         #controls button {
             background: #9146FF; color: white; border: none;
             padding: 6px 12px; border-radius: 5px; cursor: pointer; font-weight: bold;
+            transition: background 0.2s;
+        }
+        #controls button.connected {
+            background: #238539;
+            cursor: default;
         }
         #chat-container {
             display: flex; flex-direction: column; gap: 16px; max-width: 600px; width: 100%;
@@ -65,7 +70,7 @@
 
     <div id="controls">
         <label>Канал: <input type="text" id="channelInput" value="avetafyyy"></label>
-        <button onclick="initChat()">Подключить</button>
+        <button id="connectBtn" onclick="initChat()">Подключить</button>
     </div>
 
     <div id="chat-container"></div>
@@ -88,20 +93,24 @@
 
         // Загрузка 7TV смайлов с вашего сервера
         async function load7TVEmotes(channelName) {
-            SevenTVEmotes = {};
+            console.log(`[7TV] Запрос смайлов для канала: ${channelName}...`);
             try {
                 const res = await fetch(`/api/emotes/${channelName}`);
                 if (res.ok) {
                     SevenTVEmotes = await res.json();
-                    console.log(`✅ Загружено 7TV смайлов: ${Object.keys(SevenTVEmotes).length}`);
+                    const count = Object.keys(SevenTVEmotes).length;
+                    console.log(`[7TV] Успешно загружено смайлов: ${count}`);
+                } else {
+                    console.warn("[7TV] Сервер вернул ошибку при загрузке смайлов:", res.status);
                 }
             } catch (e) {
-                console.warn("Не удалось загрузить 7TV смайлы:", e);
+                console.warn("[7TV] Ошибка сети при запросе смайлов:", e);
             }
         }
 
         // Загрузка значков канала
         async function loadBadges(channelName) {
+            console.log(`[Badges] Запрос значков для канала: ${channelName}...`);
             try {
                 const res = await fetch(`https://api.ivr.fi/v2/twitch/badges/channel?login=${channelName}`);
                 if (res.ok) {
@@ -112,15 +121,17 @@
                             channelBadges[b.set_id][v.id] = v.image_url_2x || v.image_url_1x;
                         });
                     });
+                    console.log(`[Badges] Значки канала успешно загружены.`);
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.warn("[Badges] Не удалось загрузить значки канала:", e);
+            }
         }
 
         function escapeHtml(str) {
             return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         }
 
-        // Безопасный парсер эмоутов
         function parseMessageEmotes(text, rawTwitchEmotes) {
             let replacements = [];
 
@@ -155,7 +166,7 @@
 
             const words = htmlResult.split(' ');
             const finalWords = words.map(word => {
-                if (word.startsWith('<img')) return word;
+                if (word.includes('<img')) return word;
                 const cleanWord = word.trim();
                 if (SevenTVEmotes[cleanWord]) {
                     return `<img class="emote" src="${SevenTVEmotes[cleanWord]}" alt="${escapeHtml(cleanWord)}">`;
@@ -199,11 +210,25 @@
             window.scrollTo(0, document.body.scrollHeight);
         }
 
-        function initChat() {
+        async function initChat() {
             const inputVal = document.getElementById('channelInput').value.trim().toLowerCase();
             if (inputVal) currentChannel = inputVal;
 
+            const btn = document.getElementById('connectBtn');
+            btn.textContent = "Загрузка...";
+            btn.classList.remove('connected');
+
             if (ws) ws.close();
+
+            console.log(`🚀 [Init] Начало инициализации для канала: #${currentChannel}`);
+
+            // 1. Параллельно подгружаем смайлы и значки
+            await Promise.all([
+                load7TVEmotes(currentChannel),
+                loadBadges(currentChannel)
+            ]);
+
+            console.log(`🔌 [WebSocket] Подключение к серверам Twitch IRC...`);
 
             ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
 
@@ -212,30 +237,43 @@
                 ws.send('PASS oauth:none');
                 ws.send('NICK justinfan' + Math.floor(Math.random() * 89999 + 10000));
                 ws.send(`JOIN #${currentChannel}`);
+
+                console.log(`✅ [WebSocket] Успешно подключено к чату #${currentChannel}! Все ресурсы загружены.`);
+                
+                // Меняем текст кнопки и стиль
+                btn.textContent = "Подключено";
+                btn.classList.add('connected');
             };
 
             ws.onmessage = (event) => {
-                const message = event.data;
-                if (message.startsWith('PING')) {
-                    ws.send('PONG :tmi.twitch.tv');
-                    return;
-                }
-                if (message.includes('PRIVMSG')) {
-                    const badgeMatch = message.match(/badges=([^;]+)/);
-                    const emotesMatch = message.match(/emotes=([^;]+)/);
-                    const nickMatch = message.match(/display-name=([^;]+)/) || message.match(/:(\w+)!\w+@/);
-                    const msgMatch = message.match(/PRIVMSG #[^ ]+ :(.*)/);
+                const messages = event.data.split('\r\n');
+                for (const message of messages) {
+                    if (!message) continue;
+                    
+                    if (message.startsWith('PING')) {
+                        ws.send('PONG :tmi.twitch.tv');
+                        continue;
+                    }
 
-                    if (nickMatch && msgMatch) {
-                        renderMessage(nickMatch[1], msgMatch[1].trim(), badgeMatch ? badgeMatch[1] : '', emotesMatch ? emotesMatch[1] : '');
+                    if (message.includes('PRIVMSG')) {
+                        const badgeMatch = message.match(/badges=([^;]+)/);
+                        const emotesMatch = message.match(/emotes=([^;]+)/);
+                        const nickMatch = message.match(/display-name=([^;]+)/) || message.match(/:(\w+)!\w+@/);
+                        const msgMatch = message.match(/PRIVMSG #[^ ]+ :(.*)/);
+
+                        if (nickMatch && msgMatch) {
+                            renderMessage(nickMatch[1], msgMatch[1].trim(), badgeMatch ? badgeMatch[1] : '', emotesMatch ? emotesMatch[1] : '');
+                        }
                     }
                 }
             };
 
-            ws.onclose = () => { setTimeout(initChat, 3000); };
-
-            loadBadges(currentChannel);
-            load7TVEmotes(currentChannel);
+            ws.onclose = () => { 
+                console.warn(`⚠️ [WebSocket] Соединение разорвано. Переподключение через 3 секунды...`);
+                btn.textContent = "Переподключение...";
+                btn.classList.remove('connected');
+                setTimeout(initChat, 3000); 
+            };
         }
 
         initChat();
