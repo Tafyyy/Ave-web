@@ -64,6 +64,53 @@
             text-shadow: -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0px 3px 8px rgba(0,0,0,0.9);
         }
         .emote { display: inline-block; height: 32px; vertical-align: middle; margin: -4px 2px; }
+
+        /* ==========================================
+           ЭФФЕКТЫ И МОДИФИКАТОРЫ BTTV / FFZ / 7TV
+           ========================================== */
+        .emote-wrapper {
+            position: relative;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .emote-wrapper img.emote {
+            margin: 0;
+        }
+        .emote-wrapper img.emote-zw {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            pointer-events: none;
+            height: 100%;
+        }
+        .emote-wide {
+            transform: scaleX(2);
+            margin: 0 12px !important;
+        }
+        .emote-flip-x {
+            transform: scaleX(-1);
+        }
+        .emote-flip-y {
+            transform: scaleY(-1);
+        }
+        .emote-shake {
+            animation: bttv-shake 0.2s infinite ease-in-out;
+        }
+        @keyframes bttv-shake {
+            0% { transform: translate(0, 0) rotate(0deg); }
+            25% { transform: translate(-2px, 1px) rotate(-2deg); }
+            50% { transform: translate(2px, -1px) rotate(2deg); }
+            75% { transform: translate(-1px, -2px) rotate(-1deg); }
+            100% { transform: translate(1px, 2px) rotate(1deg); }
+        }
+        .emote-spin {
+            animation: bttv-spin 2s linear infinite;
+        }
+        @keyframes bttv-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -92,27 +139,27 @@
         }
 
         // Загрузка 7TV смайлов с защитой от тихих сбоев
-	async function load7TVEmotes(channelName) {
-    	    console.log(`[7TV] Запрос смайлов для канала: ${channelName}...`);
-    	    try {
-        	const url = `/api/emotes/${channelName}`;
-        	console.log(`[7TV] Шлю запрос по адресу: ${url}`);
-        
-        	const res = await fetch(url);
-        	console.log(`[7TV] Статус ответа сервера:`, res.status);
+        async function load7TVEmotes(channelName) {
+            console.log(`[7TV] Запрос смайлов для канала: ${channelName}...`);
+            try {
+                const url = `/api/emotes/${channelName}`;
+                console.log(`[7TV] Шлю запрос по адресу: ${url}`);
+                
+                const res = await fetch(url);
+                console.log(`[7TV] Статус ответа сервера:`, res.status);
 
-        	if (res.ok) {
-            	    SevenTVEmotes = await res.json();
+                if (res.ok) {
+                    SevenTVEmotes = await res.json();
                     const count = Object.keys(SevenTVEmotes).length;
                     console.log(`[7TV] Успешно загружено смайлов: ${count}`, SevenTVEmotes);
-        	} else {
-            	    const errText = await res.text();
+                } else {
+                    const errText = await res.text();
                     console.error(`[7TV] Ошибка сервера (${res.status}):`, errText);
-        	}
-    	    } catch (e) {
+                }
+            } catch (e) {
                 console.error(`[7TV] КРИТИЧЕСКАЯ ОШИБКА FETCH:`, e);
-    	    }
-    	}	
+            }
+        }
 
         // Загрузка значков канала
         async function loadBadges(channelName) {
@@ -171,16 +218,50 @@
             }
 
             const words = htmlResult.split(' ');
-            const finalWords = words.map(word => {
-                if (word.includes('<img')) return word;
-                const cleanWord = word.trim();
-                if (SevenTVEmotes[cleanWord]) {
-                    return `<img class="emote" src="${SevenTVEmotes[cleanWord]}" alt="${escapeHtml(cleanWord)}">`;
-                }
-                return escapeHtml(word);
-            });
+            let parsedWords = [];
 
-            return finalWords.join(' ');
+            for (let i = 0; i < words.length; i++) {
+                let word = words[i];
+                let isEmote = word.includes('<img');
+                let emoteHtml = '';
+
+                if (!isEmote) {
+                    const cleanWord = word.trim();
+                    if (SevenTVEmotes[cleanWord]) {
+                        const emoteData = SevenTVEmotes[cleanWord];
+                        const isZeroWidth = typeof emoteData === 'object' && emoteData.isZeroWidth;
+                        const src = typeof emoteData === 'object' ? emoteData.url : emoteData;
+
+                        emoteHtml = `<img class="emote ${isZeroWidth ? 'emote-zw' : ''}" src="${src}" alt="${escapeHtml(cleanWord)}">`;
+                        isEmote = true;
+                    }
+                } else {
+                    emoteHtml = word;
+                }
+
+                if (isEmote) {
+                    let extraClasses = [];
+                    while (i + 1 < words.length) {
+                        const nextWord = words[i + 1].trim().toLowerCase();
+                        if (nextWord === 'w!') { extraClasses.push('emote-wide'); i++; }
+                        else if (nextWord === 'h!') { extraClasses.push('emote-flip-x'); i++; }
+                        else if (nextWord === 'v!') { extraClasses.push('emote-flip-y'); i++; }
+                        else if (nextWord === 's!') { extraClasses.push('emote-shake'); i++; }
+                        else if (nextWord === 'c!') { extraClasses.push('emote-spin'); i++; }
+                        else { break; }
+                    }
+
+                    if (extraClasses.length > 0) {
+                        emoteHtml = emoteHtml.replace('class="emote', `class="emote ${extraClasses.join(' ')}`);
+                    }
+
+                    parsedWords.push(emoteHtml);
+                } else {
+                    parsedWords.push(escapeHtml(word));
+                }
+            }
+
+            return parsedWords.join(' ');
         }
 
         function renderMessage(username, messageText, rawBadges = '', rawEmotes = '') {
