@@ -91,22 +91,28 @@
             document.getElementById('controls').style.display = 'none';
         }
 
-        // Загрузка 7TV смайлов с вашего сервера
-        async function load7TVEmotes(channelName) {
-            console.log(`[7TV] Запрос смайлов для канала: ${channelName}...`);
-            try {
-                const res = await fetch(`/api/emotes/${channelName}`);
-                if (res.ok) {
-                    SevenTVEmotes = await res.json();
+        // Загрузка 7TV смайлов с защитой от тихих сбоев
+	async function load7TVEmotes(channelName) {
+    	    console.log(`[7TV] Запрос смайлов для канала: ${channelName}...`);
+    	    try {
+        	const url = `/api/emotes/${channelName}`;
+        	console.log(`[7TV] Шлю запрос по адресу: ${url}`);
+        
+        	const res = await fetch(url);
+        	console.log(`[7TV] Статус ответа сервера:`, res.status);
+
+        	if (res.ok) {
+            	    SevenTVEmotes = await res.json();
                     const count = Object.keys(SevenTVEmotes).length;
-                    console.log(`[7TV] Успешно загружено смайлов: ${count}`);
-                } else {
-                    console.warn("[7TV] Сервер вернул ошибку при загрузке смайлов:", res.status);
-                }
-            } catch (e) {
-                console.warn("[7TV] Ошибка сети при запросе смайлов:", e);
-            }
-        }
+                    console.log(`[7TV] Успешно загружено смайлов: ${count}`, SevenTVEmotes);
+        	} else {
+            	    const errText = await res.text();
+                    console.error(`[7TV] Ошибка сервера (${res.status}):`, errText);
+        	}
+    	    } catch (e) {
+                console.error(`[7TV] КРИТИЧЕСКАЯ ОШИБКА FETCH:`, e);
+    	    }
+    	}	
 
         // Загрузка значков канала
         async function loadBadges(channelName) {
