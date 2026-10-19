@@ -675,6 +675,74 @@ async function pollLastFm() {
 // Запускаем опрос каждые 10 секунд
 setInterval(pollLastFm, 10000);
 
+// ==========================================
+// ПРОКСИ ДЛЯ 7TV СМАЙЛИКОВ (КАК В CHATTERINO)
+// ==========================================
+const emotesCache = {};
+const CACHE_TTL = 10 * 60 * 1000; // 10 минут
+
+app.get('/api/emotes/:channel', async (req, res) => {
+    const channelName = req.params.channel.toLowerCase();
+    const now = Date.now();
+
+    if (emotesCache[channelName] && (now - emotesCache[channelName].time < CACHE_TTL)) {
+        return res.json(emotesCache[channelName].data);
+    }
+
+    try {
+        const gqlQuery = {
+            query: `
+                query GetUserEmotes($username: String!) {
+                    users {
+                        userByConnection(platform: "TWITCH", id: $username) {
+                            emote_set {
+                                emotes {
+                                    name
+                                    data {
+                                        host {
+                                            url
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            `,
+            variables: { username: channelName }
+        };
+
+        const response = await fetch('https://api.7tv.app/v3/gql', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(gqlQuery)
+        });
+
+        if (!response.ok) {
+            return res.status(502).json({ error: 'Не удалось получить смайлы с 7TV' });
+        }
+
+        const json = await response.json();
+        const emotesList = json?.data?.users?.userByConnection?.emote_set?.emotes || [];
+        
+        const formattedEmotes = {};
+        emotesList.forEach(e => {
+            if (e.name && e.data && e.data.host && e.data.host.url) {
+                formattedEmotes[e.name] = `https:${e.data.host.url}/2x.webp`;
+            }
+        });
+
+        emotesCache[channelName] = {
+            time: now,
+            data: formattedEmotes
+        };
+
+        res.json(formattedEmotes);
+    } catch (err) {
+        console.error('❌ Ошибка прокси 7TV:', err.message);
+        res.status(500).json({ error: 'Ошибка сервера при загрузке 7TV' });
+    }
+});
 
 // ==========================================
 // СТАТИКА И ЗАПУСК СЕРВЕРА

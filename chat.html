@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twitch Chat Overlay</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: transparent;
+            font-family: 'Montserrat', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 20px;
+        }
+        #controls {
+            position: fixed; top: 10px; left: 10px;
+            background: rgba(0, 0, 0, 0.85); color: #fff;
+            padding: 12px 16px; border-radius: 10px; z-index: 9999;
+            font-size: 13px; display: flex; gap: 10px; align-items: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1);
+        }
+        #controls input {
+            background: #222; border: 1px solid #444; color: #fff;
+            padding: 5px 8px; border-radius: 5px; font-family: inherit;
+        }
+        #controls button {
+            background: #9146FF; color: white; border: none;
+            padding: 6px 12px; border-radius: 5px; cursor: pointer; font-weight: bold;
+        }
+        #chat-container {
+            display: flex; flex-direction: column; gap: 16px; max-width: 600px; width: 100%;
+        }
+        .chat-message {
+            display: flex; flex-direction: column; align-items: flex-start;
+            animation: fadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            position: relative;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .username-badge {
+            background-color: #0d0d0d; color: #ffffff; padding: 4px 12px;
+            border-radius: 20px; font-weight: 800; font-size: 16px;
+            letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 6px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5); border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 6px;
+        }
+        .badge-icon { height: 18px; width: auto; border-radius: 2px; display: inline-block; vertical-align: middle; }
+        .message-content-wrapper { display: flex; align-items: flex-start; padding-left: 48px; }
+        .message-text {
+            color: #ffffff; font-size: 18px; font-weight: 700; line-height: 1.35; word-break: break-word;
+            text-shadow: -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 0px 3px 8px rgba(0,0,0,0.9);
+        }
+        .emote { display: inline-block; height: 32px; vertical-align: middle; margin: -4px 2px; }
+    </style>
+</head>
+<body>
+
+    <div id="controls">
+        <label>Канал: <input type="text" id="channelInput" value="avetafyyy"></label>
+        <button onclick="initChat()">Подключить</button>
+    </div>
+
+    <div id="chat-container"></div>
+
+    <script>
+        let ws = null;
+        let currentChannel = "avetafyyy";
+        let channelBadges = {};
+        let SevenTVEmotes = {};
+
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('channel')) {
+            currentChannel = urlParams.get('channel').toLowerCase();
+            document.getElementById('channelInput').value = currentChannel;
+        }
+
+        if (window.obsstudio || urlParams.has('hideControls')) {
+            document.getElementById('controls').style.display = 'none';
+        }
+
+        // Загрузка 7TV смайлов через ваш собственный сервер (без блокировок и CORS)
+        async function load7TVEmotes(channelName) {
+            SevenTVEmotes = {};
+            try {
+                const res = await fetch(`/api/emotes/${channelName}`);
+                if (res.ok) {
+                    SevenTVEmotes = await res.json();
+                    console.log(`Загружено 7TV смайлов с сервера: ${Object.keys(SevenTVEmotes).length}`);
+                }
+            } catch (e) {
+                console.warn("Не удалось загрузить 7TV смайлы:", e);
+            }
+        }
+
+        async function loadBadges(channelName) {
+            try {
+                const res = await fetch(`https://api.ivr.fi/v2/twitch/badges/channel?login=${channelName}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    data.forEach(b => {
+                        channelBadges[b.set_id] = {};
+                        b.versions.forEach(v => {
+                            channelBadges[b.set_id][v.id] = v.image_url_2x || v.image_url_1x;
+                        });
+                    });
+                }
+            } catch (e) {}
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
+        function parseMessageEmotes(text, rawTwitchEmotes) {
+            let replacements = [];
+
+            if (rawTwitchEmotes) {
+                const emoteEntries = rawTwitchEmotes.split('/');
+                for (const entry of emoteEntries) {
+                    if (!entry) continue;
+                    const [emoteId, positions] = entry.split(':');
+                    if (!positions) continue;
+                    
+                    const posList = positions.split(',');
+                    for (const pos of posList) {
+                        const [start, end] = pos.split('-').map(Number);
+                        const emoteCode = text.substring(start, end + 1);
+                        replacements.push({
+                            start,
+                            end,
+                            html: `<img class="emote" src="https://static-cdn.jtvnw.net/emoticons/v2/${emoteId}/default/dark/2.0" alt="${escapeHtml(emoteCode)}">`
+                        });
+                    }
+                }
+            }
+
+            replacements.sort((a, b) => b.start - a.start);
+
+            let htmlResult = text;
+            for (const rep of replacements) {
+                const before = htmlResult.substring(0, rep.start);
+                const after = htmlResult.substring(rep.end + 1);
+                htmlResult = before + rep.html + after;
+            }
+
+            const words = htmlResult.split(' ');
+            const finalWords = words.map(word => {
+                if (word.startsWith('<img')) return word;
+                const cleanWord = word.trim();
+                if (SevenTVEmotes[cleanWord]) {
+                    return `<img class="emote" src="${SevenTVEmotes[cleanWord]}" alt="${escapeHtml(cleanWord)}">`;
+                }
+                return escapeHtml(word);
+            });
+
+            return finalWords.join(' ');
+        }
+
+        function renderMessage(username, messageText, rawBadges = '', rawEmotes = '') {
+            const container = document.getElementById('chat-container');
+            const messageEl = document.createElement('div');
+            messageEl.className = 'chat-message';
+
+            let badgesHtml = '';
+            if (rawBadges) {
+                const badgePairs = rawBadges.split(',');
+                for (const pair of badgePairs) {
+                    const [badgeName, version] = pair.split('/');
+                    if (channelBadges[badgeName] && channelBadges[badgeName][version]) {
+                        badgesHtml += `<img class="badge-icon" src="${channelBadges[badgeName][version]}" alt="${badgeName}"> `;
+                    }
+                }
+            }
+
+            const formattedText = parseMessageEmotes(messageText, rawEmotes);
+
+            messageEl.innerHTML = `
+                <div class="username-badge">
+                    ${badgesHtml}
+                    <span>${escapeHtml(username)}</span>
+                </div>
+                <div class="message-content-wrapper">
+                    <div class="message-text">${formattedText}</div>
+                </div>
+            `;
+
+            container.appendChild(messageEl);
+            if (container.children.length > 8) container.removeChild(container.firstChild);
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+
+        function initChat() {
+            const inputVal = document.getElementById('channelInput').value.trim().toLowerCase();
+            if (inputVal) currentChannel = inputVal;
+
+            if (ws) ws.close();
+
+            ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+
+            ws.onopen = () => {
+                ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+                ws.send('PASS oauth:none');
+                ws.send('NICK justinfan' + Math.floor(Math.random() * 89999 + 10000));
+                ws.send(`JOIN #${currentChannel}`);
+            };
+
+            ws.onmessage = (event) => {
+                const message = event.data;
+                if (message.startsWith('PING')) {
+                    ws.send('PONG :tmi.twitch.tv');
+                    return;
+                }
+                if (message.includes('PRIVMSG')) {
+                    const badgeMatch = message.match(/badges=([^;]+)/);
+                    const emotesMatch = message.match(/emotes=([^;]+)/);
+                    const nickMatch = message.match(/display-name=([^;]+)/) || message.match(/:(\w+)!\w+@/);
+                    const msgMatch = message.match(/PRIVMSG #[^ ]+ :(.*)/);
+
+                    if (nickMatch && msgMatch) {
+                        renderMessage(nickMatch[1], msgMatch[1].trim(), badgeMatch ? badgeMatch[1] : '', emotesMatch ? emotesMatch[1] : '');
+                    }
+                }
+            };
+
+            ws.onclose = () => { setTimeout(initChat, 3000); };
+
+            loadBadges(currentChannel);
+            load7TVEmotes(currentChannel);
+        }
+
+        initChat();
+    </script>
+</body>
+</html>
