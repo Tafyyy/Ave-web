@@ -684,7 +684,7 @@ async function pollLastFm() {
 setInterval(pollLastFm, 10000);
 
 // ==========================================
-// ПРОКСИ ДЛЯ 7TV СМАЙЛИКОВ (ИСПРАВЛЕННЫЙ)
+// ПРОКСИ ДЛЯ 7TV СМАЙЛИКОВ (НАДЕЖНЫЙ)
 // ==========================================
 const emotesCache = {};
 const CACHE_TTL = 10 * 60 * 1000; // 10 минут
@@ -693,54 +693,52 @@ app.get('/api/emotes/:channel', async (req, res) => {
     const channelName = req.params.channel.toLowerCase();
     const now = Date.now();
 
-    // Возвращаем из кэша, если есть
     if (emotesCache[channelName] && (now - emotesCache[channelName].time < CACHE_TTL)) {
         return res.json(emotesCache[channelName].data);
     }
 
     try {
-        // 1. Попытка получить смайлы через v3 REST API (работает по логину Twitch)
-        const response = await fetch(`https://7tv.io/v3/users/twitch/${channelName}`);
-        
-        if (response.ok) {
-            const data = await response.json();
-            
-            let emoteSet = data.emote_set || (data.connections && data.connections.find(c => c.platform === 'twitch')?.emote_set);
+        const formattedEmotes = {};
 
+        // Способ 1: Запрос через публичный API 7TV (v3)
+        const res3 = await fetch(`https://7tv.io/v3/users/twitch/${channelName}`);
+        if (res3.ok) {
+            const data = await res3.json();
+            const emoteSet = data.emote_set || (data.connections && data.connections.find(c => c.platform === 'twitch')?.emote_set);
             if (emoteSet && emoteSet.emotes) {
-                const formattedEmotes = {};
                 emoteSet.emotes.forEach(e => {
                     if (e.name && e.data && e.data.host && e.data.host.url) {
                         formattedEmotes[e.name] = `https:${e.data.host.url}/2x.webp`;
                     }
                 });
-
-                emotesCache[channelName] = { time: now, data: formattedEmotes };
-                console.log(`✅ [7TV Server] Загружено смайлов для ${channelName}: ${Object.keys(formattedEmotes).length}`);
-                return res.json(formattedEmotes);
             }
         }
 
-        // 2. Резервный источник (v2 API 7TV)
-        const fallbackRes = await fetch(`https://api.7tv.app/v2/users/${channelName}/emotes`);
-        if (fallbackRes.ok) {
-            const fbData = await fallbackRes.json();
-            const formattedEmotes = {};
-            fbData.forEach(e => {
-                if (e.name && e.urls) {
-                    formattedEmotes[e.name] = e.urls[1]?.[1] || e.urls[0]?.[1];
-                }
-            });
-
-            emotesCache[channelName] = { time: now, data: formattedEmotes };
-            console.log(`✅ [7TV Fallback] Загружено смайлов для ${channelName}: ${Object.keys(formattedEmotes).length}`);
-            return res.json(formattedEmotes);
+        // Способ 2: Если первый способ пустой, пробуем через публичный эмкаут-агрегатор
+        if (Object.keys(formattedEmotes).length === 0) {
+            const resAgg = await fetch(`https://emotes.adamcy.pl/v1/channel/${channelName}/emotes/all`);
+            if (resAgg.ok) {
+                const aggData = await resAgg.json();
+                aggData.forEach(e => {
+                    if (e.code && e.urls) {
+                        const url = e.urls.find(u => u.size === '2x')?.url || e.urls[0]?.url;
+                        if (url) formattedEmotes[e.code] = url;
+                    }
+                });
+            }
         }
 
-        res.json({});
+        console.log(`🔍 [7TV Server] Для канала "${channelName}" найдено смайлов: ${Object.keys(formattedEmotes).length}`);
+
+        emotesCache[channelName] = {
+            time: now,
+            data: formattedEmotes
+        };
+
+        res.json(formattedEmotes);
     } catch (err) {
-        console.error('❌ Ошибка прокси 7TV на сервере:', err.message);
-        res.json({});
+        console.error('❌ [7TV Server Error]:', err.message);
+        res.status(500).json({});
     }
 });
 
