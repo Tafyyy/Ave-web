@@ -684,7 +684,7 @@ async function pollLastFm() {
 setInterval(pollLastFm, 10000);
 
 // ==========================================
-// ПРОКСИ ДЛЯ 7TV СМАЙЛИКОВ (КАК В CHATTERINO)
+// ПРОКСИ ДЛЯ 7TV СМАЙЛИКОВ (ИСПРАВЛЕННЫЙ)
 // ==========================================
 const emotesCache = {};
 const CACHE_TTL = 10 * 60 * 1000; // 10 минут
@@ -693,62 +693,54 @@ app.get('/api/emotes/:channel', async (req, res) => {
     const channelName = req.params.channel.toLowerCase();
     const now = Date.now();
 
+    // Возвращаем из кэша, если есть
     if (emotesCache[channelName] && (now - emotesCache[channelName].time < CACHE_TTL)) {
         return res.json(emotesCache[channelName].data);
     }
 
     try {
-        const gqlQuery = {
-            query: `
-                query GetUserEmotes($username: String!) {
-                    users {
-                        userByConnection(platform: "TWITCH", id: $username) {
-                            emote_set {
-                                emotes {
-                                    name
-                                    data {
-                                        host {
-                                            url
-                                        }
-                                    }
-                                }
-                            }
-                        }
+        // 1. Попытка получить смайлы через v3 REST API (работает по логину Twitch)
+        const response = await fetch(`https://7tv.io/v3/users/twitch/${channelName}`);
+        
+        if (response.ok) {
+            const data = await response.json();
+            
+            let emoteSet = data.emote_set || (data.connections && data.connections.find(c => c.platform === 'twitch')?.emote_set);
+
+            if (emoteSet && emoteSet.emotes) {
+                const formattedEmotes = {};
+                emoteSet.emotes.forEach(e => {
+                    if (e.name && e.data && e.data.host && e.data.host.url) {
+                        formattedEmotes[e.name] = `https:${e.data.host.url}/2x.webp`;
                     }
-                }
-            `,
-            variables: { username: channelName }
-        };
+                });
 
-        const response = await fetch('https://api.7tv.app/v3/gql', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(gqlQuery)
-        });
-
-        if (!response.ok) {
-            return res.status(502).json({ error: 'Не удалось получить смайлы с 7TV' });
+                emotesCache[channelName] = { time: now, data: formattedEmotes };
+                console.log(`✅ [7TV Server] Загружено смайлов для ${channelName}: ${Object.keys(formattedEmotes).length}`);
+                return res.json(formattedEmotes);
+            }
         }
 
-        const json = await response.json();
-        const emotesList = json?.data?.users?.userByConnection?.emote_set?.emotes || [];
-        
-        const formattedEmotes = {};
-        emotesList.forEach(e => {
-            if (e.name && e.data && e.data.host && e.data.host.url) {
-                formattedEmotes[e.name] = `https:${e.data.host.url}/2x.webp`;
-            }
-        });
+        // 2. Резервный источник (v2 API 7TV)
+        const fallbackRes = await fetch(`https://api.7tv.app/v2/users/${channelName}/emotes`);
+        if (fallbackRes.ok) {
+            const fbData = await fallbackRes.json();
+            const formattedEmotes = {};
+            fbData.forEach(e => {
+                if (e.name && e.urls) {
+                    formattedEmotes[e.name] = e.urls[1]?.[1] || e.urls[0]?.[1];
+                }
+            });
 
-        emotesCache[channelName] = {
-            time: now,
-            data: formattedEmotes
-        };
+            emotesCache[channelName] = { time: now, data: formattedEmotes };
+            console.log(`✅ [7TV Fallback] Загружено смайлов для ${channelName}: ${Object.keys(formattedEmotes).length}`);
+            return res.json(formattedEmotes);
+        }
 
-        res.json(formattedEmotes);
+        res.json({});
     } catch (err) {
-        console.error('❌ Ошибка прокси 7TV:', err.message);
-        res.status(500).json({ error: 'Ошибка сервера при загрузке 7TV' });
+        console.error('❌ Ошибка прокси 7TV на сервере:', err.message);
+        res.json({});
     }
 });
 
