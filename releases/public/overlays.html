@@ -168,7 +168,7 @@
         function updateLinks() {
             const channel = document.getElementById('channelName').value.trim().toLowerCase() || 'avetafyyy';
             // Выбираем файл в зависимости от выбранного стиля чата
-            const fileName = selectedChatType === 'ave_chat' ? 'chat.html' : 'classic_chat.html';
+            const fileName = selectedChatType === 'ave_chat' ? 'ave_chat.html' : 'classic_chat.html';
             
             const baseUrl = window.location.origin;
             const finalUrl = `${baseUrl}/${fileName}?channel=${channel}&hideControls=1`;

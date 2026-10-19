@@ -740,3 +740,24 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Hub running on port ${PORT}`));
+
+// ==========================================
+// МАРШРУТЫ ДЛЯ ОВЕРЛЕЕВ И СТАТИКА
+// ==========================================
+
+// Указываем правильную папку releases/public
+const publicPath = path.join(__dirname, 'releases', 'public');
+app.use(express.static(publicPath));
+
+// Дополнительные маршруты для удобства
+app.get('/chat.html', (req, res) => {
+    res.sendFile(path.join(publicPath, 'ave_chat.html'));
+});
+
+app.get('/classic_chat.html', (req, res) => {
+    res.sendFile(path.join(publicPath, 'classic_chat.html'));
+});
+
+app.get('/overlays.html', (req, res) => {
+    res.sendFile(path.join(publicPath, 'overlays.html'));
+});
