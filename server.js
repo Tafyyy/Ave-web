@@ -684,7 +684,7 @@ async function pollLastFm() {
 setInterval(pollLastFm, 10000);
 
 // ==========================================
-// ПРОКСИ ДЛЯ 7TV СМАЙЛИКОВ (УНИВЕРСАЛЬНЫЙ АГРЕГАТОР)
+// ПРОКСИ ДЛЯ 7TV СМАЙЛИКОВ (АВТОПОИСК ID ПО НИКНЕЙМУ)
 // ==========================================
 const emotesCache = {};
 const CACHE_TTL = 10 * 60 * 1000; // 10 минут
@@ -698,27 +698,79 @@ app.get('/api/emotes/:channel', async (req, res) => {
     }
 
     try {
-        const formattedEmotes = {};
+        let formattedEmotes = {};
+        let tvUserId = null;
 
-        // Универсальный эндпоинт, собирающий все кастомные смайлы канала (7TV, BTTV, FFZ)
-        const response = await fetch(`https://emotes.adamcy.pl/v1/channel/${channelName}/emotes/all`);
-        
-        if (response.ok) {
-            const data = await response.json();
-            if (Array.isArray(data)) {
-                data.forEach(e => {
-                    if (e.code && e.urls) {
-                        // Берем версию 2x для хорошего качества в OBS
-                        const urlObj = e.urls.find(u => u.size === '2x') || e.urls[0];
-                        if (urlObj && urlObj.url) {
-                            formattedEmotes[e.code] = urlObj.url;
-                        }
-                    }
-                });
+        // Шаг 1. Ищем ID пользователя 7TV через официальный эндпоинт поиска/подключения Twitch
+        const searchRes = await fetch(`https://7tv.io/v3/users/twitch/${channelName}`);
+        if (searchRes.ok) {
+            const searchData = await searchRes.json();
+            // У 7TV в ответе может быть поле id самого юзера
+            if (searchData.id) {
+                tvUserId = searchData.id;
             }
         }
 
-        console.log(`🔍 [Emotes Server] Для канала "${channelName}" загружено смайлов: ${Object.keys(formattedEmotes).length}`);
+        // Шаг 2. Если прямой эндпоинт не вернул ID, делаем запрос через GraphQL-поиск 7TV
+        if (!tvUserId) {
+            const gqlQuery = {
+                query: `
+                    query SearchUsers($query: String!) {
+                        users(query: $query, limit: 1) {
+                            items {
+                                id
+                                username
+                                connections {
+                                    platform
+                                    username
+                                }
+                            }
+                        }
+                    }
+                `,
+                variables: { query: channelName }
+            };
+
+            const gqlRes = await fetch('https://api.7tv.app/v3/gql', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(gqlQuery)
+            });
+
+            if (gqlRes.ok) {
+                const gqlData = await gqlRes.json();
+                const items = gqlData?.data?.users?.items;
+                if (items && items.length > 0) {
+                    // Ищем пользователя, у которого совпадает ник на Twitch
+                    const matchedUser = items.find(u => 
+                        u.connections && u.connections.some(c => c.platform === 'TWITCH' && c.username.toLowerCase() === channelName)
+                    ) || items[0]; // Или берем первый результат поиска, если точного совпадения по connections нет
+
+                    if (matchedUser && matchedUser.id) {
+                        tvUserId = matchedUser.id;
+                    }
+                }
+            }
+        }
+
+        // Шаг 3. Если ID успешно найден, забираем по нему набор смайлов
+        if (tvUserId) {
+            const userRes = await fetch(`https://7tv.io/v3/users/${tvUserId}`);
+            if (userRes.ok) {
+                const userData = await userRes.json();
+                const emoteSet = userData.emote_set;
+                
+                if (emoteSet && emoteSet.emotes) {
+                    emoteSet.emotes.forEach(e => {
+                        if (e.name && e.data && e.data.host && e.data.host.url) {
+                            formattedEmotes[e.name] = `https:${e.data.host.url}/2x.webp`;
+                        }
+                    });
+                }
+            }
+        }
+
+        console.log(`🔍 [7TV AutoSearch] Канал: "${channelName}" -> ID: ${tvUserId || 'не найден'} -> Смайлов: ${Object.keys(formattedEmotes).length}`);
 
         emotesCache[channelName] = {
             time: now,
@@ -727,7 +779,7 @@ app.get('/api/emotes/:channel', async (req, res) => {
 
         res.json(formattedEmotes);
     } catch (err) {
-        console.error('❌ [Emotes Server Error]:', err.message);
+        console.error('❌ [7TV Server Error]:', err.message);
         res.status(500).json({});
     }
 });
