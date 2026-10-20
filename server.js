@@ -161,7 +161,7 @@ const verifyToken = async (req, res, next) => {
 
 
 // ==========================================
-// МАРШРУТЫ САЙТА (FRONTEND)
+// МАРШРУТЫ САЙТА (FRONTEND) СО ВСЕЙ ИНСТРУКЦИЕЙ
 // ==========================================
 
 app.get('/', async (req, res) => {
@@ -190,7 +190,7 @@ app.get('/', async (req, res) => {
                 .main-wrapper {
                     display: flex;
                     gap: 20px;
-                    max-width: 1100px;
+                    max-width: 1200px;
                     width: 100%;
                     justify-content: center;
                     align-items: flex-start;
@@ -201,7 +201,7 @@ app.get('/', async (req, res) => {
                     border: 1px solid #2f2f35; 
                     border-radius: 12px; 
                     padding: 40px; 
-                    max-width: 550px; 
+                    max-width: 500px; 
                     width: 100%; 
                     text-align: center; 
                     box-shadow: 0 10px 25px rgba(0,0,0,0.5);
@@ -234,20 +234,23 @@ app.get('/', async (req, res) => {
                     border: 1px solid #2f2f35;
                     border-radius: 12px;
                     padding: 30px;
-                    max-width: 520px;
+                    max-width: 600px;
                     width: 100%;
                     text-align: left;
                     box-shadow: 0 10px 25px rgba(0,0,0,0.5);
                     animation: fadeIn 0.3s ease;
+                    max-height: 85vh;
+                    overflow-y: auto;
                 }
                 .sidebar.active { display: block; }
-                .sidebar h3 { color: #bf94ff; font-size: 18px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+                .sidebar h3 { color: #bf94ff; font-size: 18px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
                 .sidebar-close { cursor: pointer; color: #adadb8; font-size: 20px; border: none; background: none; }
                 .sidebar-close:hover { color: #fff; }
-                .step-block { background: #0e0e10; border: 1px solid #2f2f35; border-radius: 8px; padding: 15px; margin-bottom: 12px; }
-                .step-title { color: #fff; font-size: 14px; font-weight: bold; margin-bottom: 6px; }
-                .step-text { color: #adadb8; font-size: 13px; line-height: 1.5; }
-                .step-text ol { margin-left: 18px; }
+                
+                .step-block { background: #0e0e10; border: 1px solid #2f2f35; border-radius: 8px; padding: 16px; margin-bottom: 15px; }
+                .step-title { color: #ffffff; font-size: 15px; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #2f2f35; padding-bottom: 6px; }
+                .step-text { color: #adadb8; font-size: 13px; line-height: 1.6; }
+                .step-text ol { margin-left: 18px; margin-top: 6px; }
                 .step-text li { margin-bottom: 6px; }
                 .step-text a { color: #bf94ff; text-decoration: underline; }
                 .step-text a:hover { color: #ffffff; }
@@ -257,9 +260,9 @@ app.get('/', async (req, res) => {
                     to { opacity: 1; transform: translateX(0); }
                 }
 
-                @media (max-width: 900px) {
+                @media (max-width: 950px) {
                     .main-wrapper { flex-direction: column; align-items: center; }
-                    .sidebar { max-width: 550px; }
+                    .sidebar { max-width: 500px; }
                 }
             </style>
         </head>
@@ -276,16 +279,15 @@ app.get('/', async (req, res) => {
                             <a href="https://github.com/Tafyyy/Ave-web/releases/latest/download/avetracker.user.js" class="btn btn-secondary" target="_blank">Установить UserScript</a>
                         </div>
                         <div>
-                            <span class="info-link" onclick="toggleInstruction()">📖 Инструкция по установке и настройке</span>
+                            <span class="info-link" onclick="toggleInstruction()">Инструкция по установке и настройке</span>
                         </div>
                     </div>
 
-                    <!-- НОВЫЙ РАЗДЕЛ С ОВЕРЛЕЯМИ ЧАТА -->
                     <div class="section">
                         <h2>Оверлей чата для стрима</h2>
                         <p class="desc">Подключение чата Twitch в OBS со смайликами 7TV и поддержкой спецэффектов (тряска, вращение, wide).</p>
                         <div>
-                            <a href="/overlays.html" class="btn btn-secondary">⚙️ Выбрать дизайн чата</a>
+                            <a href="/overlays.html" class="btn btn-secondary">Выбрать дизайн чата</a>
                         </div>
                     </div>
 
@@ -295,30 +297,55 @@ app.get('/', async (req, res) => {
                     </div>
                 </div>
 
+                <!-- Подробная инструкция без смайликов -->
                 <div class="sidebar" id="instructionSidebar">
                     <h3>
-                        <span>📖 Инструкция по установке</span>
+                        <span>Инструкция по установке</span>
                         <button class="sidebar-close" onclick="toggleInstruction()">✕</button>
                     </h3>
 
                     <div class="step-block">
-                        <div class="step-title">🎧 Spotify (через Last.fm)</div>
+                        <div class="step-title">1. Настройка Spotify (через Last.fm)</div>
                         <div class="step-text">
-                            Укажите ваш никнейм Last.fm в Личном кабинете. Музыка из Spotify будет считываться автоматически 24/7 без запуска ПК-приложений.
+                            Этот способ не требует запуска сторонних программ на ПК. Музыка отслеживается автоматически в режиме 24/7 с любого устройства (компьютер, смартфон, консоль).
+                            <ol>
+                                <li><b>Зарегистрируйтесь на Last.fm:</b> перейдите на сайт <a href="https://www.last.fm/" target="_blank">https://www.last.fm/</a> и создайте аккаунт.</li>
+                                <li><b>Свяжите Spotify и Last.fm:</b> перейдите в настройки Last.fm на страницу <a href="https://www.last.fm/settings/applications" target="_blank">подключения приложений</a>, найдите пункт <b>Spotify Scrobbling</b> и нажмите кнопку <b>Подключить</b>.</li>
+                                <li><b>Укажите никнейм:</b> скопируйте ваш логин с сайта Last.fm, откройте <a href="/dashboard">личный кабинет</a> и вставьте его в поле Last.fm.</li>
+                            </ol>
                         </div>
                     </div>
 
                     <div class="step-block">
-                        <div class="step-title">🌐 Яндекс Музыка (через ПК/браузер)</div>
+                        <div class="step-title">2. Настройка Яндекс Музыки (через ПК или Браузер)</div>
                         <div class="step-text">
-                            Используйте приложение .exe или UserScript, указав токен из Личного кабинета.
+                            <b>Вариант А: Через приложение .exe (для Windows)</b>
+                            <ol>
+                                <li>Скачайте и запустите <b>AVETRACKER.exe</b> с главной страницы.</li>
+                                <li>Скопируйте ваш персональный токен из <a href="/dashboard">личного кабинета</a> и вставьте его в окно программы.</li>
+                                <li>Запустите приложение Яндекс Музыки на ПК и включите трек.</li>
+                            </ol>
+                            <br>
+                            <b>Вариант Б: Через браузерный UserScript (без .exe)</b>
+                            <ol>
+                                <li>Установите расширение <b>Violentmonkey</b> (<a href="https://chromewebstore.google.com/detail/violentmonkey/jifbpmapmngfgfnffkgflabbshadow/related" target="_blank">ссылка на магазин Chrome</a>) или Tampermonkey.</li>
+                                <li><b>Решение проблемы с установкой скриптов:</b> если браузер требует включить «Режим разработчика», откройте <code>chrome://extensions/</code>, включите режим разработчика в правом верхнем углу, а у расширения разрешите доступ к файлам и пользовательским скриптам.</li>
+                                <li>Нажмите <b>«Установить UserScript»</b> на главной странице и подтвердите установку.</li>
+                                <li>Перейдите на сайт <a href="https://music.yandex.ru/" target="_blank">https://music.yandex.ru/</a> и в появившейся панели укажите токен из <a href="/dashboard">личного кабинета</a>.</li>
+                            </ol>
                         </div>
                     </div>
 
                     <div class="step-block">
-                        <div class="step-title">🤖 Настройка бота в чате (StreamElements)</div>
+                        <div class="step-title">3. Настройка бота в чате Twitch (StreamElements)</div>
                         <div class="step-text">
-                            Создайте команду (например, <code>!трек</code>) в панели StreamElements и вставьте скопированную ссылку из Личного кабинета.
+                            <ol>
+                                <li>Перейдите в панель управления <a href="https://streamelements.com/dashboard" target="_blank">StreamElements</a> и авторизуйтесь через Twitch.</li>
+                                <li>В меню выберите <b>Chat Commands</b> -> <b>Custom Commands</b> и нажмите <b>Add New Command</b>.</li>
+                                <li>Укажите название команды (например, <code>!song</code> или <code>!трек</code>).</li>
+                                <li>В поле Response вставьте конструкцию со ссылкой из вашего <a href="/dashboard">личного кабинета</a>, например:<br><code>\$(customapi http://avetracker-hub.onrender.com/api/track?channel=Логин_твитча)</code></li>
+                                <li>Сохраните команду и убедитесь, что бот подключен к вашему каналу.</li>
+                            </ol>
                         </div>
                     </div>
                 </div>
@@ -410,11 +437,11 @@ app.get('/dashboard', async (req, res) => {
                 <label>Ваш постоянный токен (для ПК-приложения):</label>
                 <div class="input-group">
                     <input type="password" id="tokenInput" value="${token}" readonly onclick="this.select();">
-                    <button class="btn-toggle" onclick="toggleTokenVisibility()">👁️ Показать</button>
+                    <button class="btn-toggle" onclick="toggleTokenVisibility()">Показать</button>
                 </div>
                 
                 <div style="margin-top: 8px;">
-                    <a href="/regenerate-token" class="btn" style="font-size: 11px; padding: 6px 12px; background: #3a3a42;" onclick="return confirm('Вы уверены? Старый токен перейдет в предыдущие, но старое приложение перестанет работать, пока вы не обновите токен там!');">🔄 Сгенерировать новый токен</a>
+                    <a href="/regenerate-token" class="btn" style="font-size: 11px; padding: 6px 12px; background: #3a3a42;" onclick="return confirm('Вы уверены? Старый токен перейдет в предыдущие, но старое приложение перестанет работать, пока вы не обновите токен там!');">Сгенерировать новый токен</a>
                 </div>
 
                 <form action="/api/save-lastfm" method="POST">
@@ -440,10 +467,10 @@ app.get('/dashboard', async (req, res) => {
                     const btn = event.target;
                     if (input.type === 'password') {
                         input.type = 'text';
-                        btn.textContent = '🙈 Скрыть';
+                        btn.textContent = 'Скрыть';
                     } else {
                         input.type = 'password';
-                        btn.textContent = '👁️ Показать';
+                        btn.textContent = 'Показать';
                     }
                 }
             </script>
@@ -615,6 +642,7 @@ app.get('/api/track', (req, res) => {
     res.send(track);
 });
 
+// Пинг-эндпоинт для поддержания активности сервера
 app.get('/api/ping', (req, res) => {
     res.status(200).send('PONG');
 });
@@ -736,20 +764,12 @@ app.get('/api/emotes/:channel', async (req, res) => {
     }
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Hub running on port ${PORT}`));
-
 // ==========================================
 // МАРШРУТЫ ДЛЯ ОВЕРЛЕЕВ И СТАТИКА
 // ==========================================
-
-// Указываем правильную папку releases/public
 const publicPath = path.join(__dirname, 'releases', 'public');
 app.use(express.static(publicPath));
 
-// Дополнительные маршруты для удобства
 app.get('/chat.html', (req, res) => {
     res.sendFile(path.join(publicPath, 'ave_chat.html'));
 });
@@ -761,3 +781,10 @@ app.get('/classic_chat.html', (req, res) => {
 app.get('/overlays.html', (req, res) => {
     res.sendFile(path.join(publicPath, 'overlays.html'));
 });
+
+app.get('/builder.html', (req, res) => {
+    res.sendFile(path.join(publicPath, 'builder.html'));
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Hub running on port ${PORT}`));
