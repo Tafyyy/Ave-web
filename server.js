@@ -770,7 +770,7 @@ app.get('/api/emotes/:channel', async (req, res) => {
 const publicPath = path.join(__dirname, 'releases', 'public');
 app.use(express.static(publicPath));
 
-app.get('/chat.html', (req, res) => {
+app.get('/ave_chat.html', (req, res) => {
     res.sendFile(path.join(publicPath, 'ave_chat.html'));
 });
 

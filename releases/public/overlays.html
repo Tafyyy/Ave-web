@@ -42,6 +42,23 @@
         }
         input[type="text"]:focus { border-color: #9146ff; }
 
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 15px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #efeff1;
+            font-weight: 500;
+        }
+        .checkbox-group input {
+            width: 18px;
+            height: 18px;
+            accent-color: #9146ff;
+            cursor: pointer;
+        }
+
         .chat-cards {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -121,6 +138,10 @@
         <div class="form-group">
             <label for="channelName">Никнейм вашего канала на Twitch:</label>
             <input type="text" id="channelName" value="avetafyyy" placeholder="например, bratishkinoff" oninput="updateLinks()">
+            
+            <label class="checkbox-group">
+                <input type="checkbox" id="showBots" onchange="updateLinks()"> Отображать сообщения от ботов (StreamElements, Nightbot и др.)
+            </label>
         </div>
 
         <label>Дизайн чата:</label>
@@ -167,11 +188,13 @@
 
         function updateLinks() {
             const channel = document.getElementById('channelName').value.trim().toLowerCase() || 'avetafyyy';
+            const showBotsChecked = document.getElementById('showBots').checked;
+            
             // Выбираем файл в зависимости от выбранного стиля чата
             const fileName = selectedChatType === 'ave_chat' ? 'ave_chat.html' : 'classic_chat.html';
             
             const baseUrl = window.location.origin;
-            const finalUrl = `${baseUrl}/${fileName}?channel=${channel}&hideControls=1`;
+            const finalUrl = `${baseUrl}/${fileName}?channel=${channel}&showBots=${showBotsChecked}&hideControls=1`;
             
             document.getElementById('urlOutput').textContent = finalUrl;
         }
