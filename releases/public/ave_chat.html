@@ -110,11 +110,11 @@
     <div id="chat-container"></div>
 
     <script>
-        const socket = io();
-        let showBots = false;
+	const socket = io();
+        let showBots = false; // По умолчанию скрываем
 
         let ws = null;
-        let currentChannel = "avetafyyyy";
+        let currentChannel = "avetafyyy";
         let channelBadges = {};
         let SevenTVEmotes = {};
 
@@ -129,7 +129,7 @@
             document.getElementById('channelInput').value = currentChannel;
         }
 
-	// Считываем настройку ботов из URL, если она передана
+        // 1. Сразу проверяем параметр в ссылке (для OBS Source)
         if (urlParams.has('showBots')) {
             showBots = urlParams.get('showBots') === 'true';
         }
@@ -138,7 +138,7 @@
             document.getElementById('controls').style.display = 'none';
         }
 
-        // Подключаемся к комнате Socket.io канала
+        // 2. Подключаемся к комнате и слушаем изменения в реальном времени
         socket.emit('join_channel', currentChannel);
 
         socket.on('init_settings', (settings) => {
@@ -271,17 +271,18 @@
             return parsedWords.join(' ');
         }
 
-        function renderMessage(username, messageText, rawBadges = '', rawEmotes = '') {
+	function renderMessage(username, messageText, rawBadges = '', rawEmotes = '') {
             const lowerUsername = username.toLowerCase();
             const isBot = knownBots.includes(lowerUsername) || lowerUsername.endsWith('bot');
 
-            // Если боты отключены централизованно, игнорируем их сообщения
+            // ЕСЛИ ГАЛОЧКА ВЫКЛЮЧЕНА И ЭТО БОТ — ПРОПУСКАЕМ
             if (!showBots && isBot) {
                 return;
             }
 
             let cleanText = messageText.trim();
 
+            // Убираем дублирующийся @ник у ботов, если он есть
             if (isBot) {
                 cleanText = cleanText.replace(/^@[^\s]+\s*/, '').trim();
             }
