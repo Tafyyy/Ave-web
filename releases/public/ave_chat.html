@@ -114,7 +114,7 @@
         let showBots = false;
 
         let ws = null;
-        let currentChannel = "avetafyyy";
+        let currentChannel = "avetafyyyy";
         let channelBadges = {};
         let SevenTVEmotes = {};
 
@@ -127,6 +127,11 @@
         if (urlParams.has('channel')) {
             currentChannel = urlParams.get('channel').toLowerCase();
             document.getElementById('channelInput').value = currentChannel;
+        }
+
+	// Считываем настройку ботов из URL, если она передана
+        if (urlParams.has('showBots')) {
+            showBots = urlParams.get('showBots') === 'true';
         }
 
         if (window.obsstudio || urlParams.has('hideControls')) {
