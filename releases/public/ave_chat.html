@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Twitch Chat Overlay</title>
     <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="/socket.io/socket.io.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -44,7 +45,6 @@
             gap: 16px; 
             max-width: 600px; 
             width: 100%;
-            /* Плавное затухание сообщений сверху */
             -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 1) 25%);
             mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 1) 25%);
         }
@@ -82,7 +82,6 @@
         }
         .emote { display: inline-block; height: 32px; vertical-align: middle; margin: -4px 2px; }
 
-        /* Эффекты и модификаторы BTTV / FFZ / 7TV */
         .emote-wrapper { position: relative; display: inline-block; vertical-align: middle; }
         .emote-wrapper img.emote { margin: 0; }
         .emote-wrapper img.emote-zw { position: absolute; top: 0; left: 50%; transform: translateX(-50%); pointer-events: none; height: 100%; }
@@ -111,12 +110,14 @@
     <div id="chat-container"></div>
 
     <script>
+        const socket = io();
+        let showBots = false;
+
         let ws = null;
         let currentChannel = "avetafyyy";
         let channelBadges = {};
         let SevenTVEmotes = {};
 
-        // Список известных ботов для точечной фильтрации их префиксов
         const knownBots = [
             'nightbot', 'streamelements', 'streamlabs', 'botrix', 
             'moobot', 'fossabot', 'wizebot', 'customalerts', 'soundalerts'
@@ -131,6 +132,21 @@
         if (window.obsstudio || urlParams.has('hideControls')) {
             document.getElementById('controls').style.display = 'none';
         }
+
+        // Подключаемся к комнате Socket.io канала
+        socket.emit('join_channel', currentChannel);
+
+        socket.on('init_settings', (settings) => {
+            if (settings && typeof settings.showBots === 'boolean') {
+                showBots = settings.showBots;
+            }
+        });
+
+        socket.on('settings_changed', (settings) => {
+            if (settings && typeof settings.showBots === 'boolean') {
+                showBots = settings.showBots;
+            }
+        });
 
         async function load7TVEmotes(channelName) {
             console.log(`[7TV] Запрос смайлов для канала: ${channelName}...`);
@@ -254,9 +270,13 @@
             const lowerUsername = username.toLowerCase();
             const isBot = knownBots.includes(lowerUsername) || lowerUsername.endsWith('bot');
 
+            // Если боты отключены централизованно, игнорируем их сообщения
+            if (!showBots && isBot) {
+                return;
+            }
+
             let cleanText = messageText.trim();
 
-            // Если сообщение от бота, убираем у него лишнее авто-упоминание в начале (например, "@noINS0MNIA")
             if (isBot) {
                 cleanText = cleanText.replace(/^@[^\s]+\s*/, '').trim();
             }
@@ -295,7 +315,10 @@
 
         async function initChat() {
             const inputVal = document.getElementById('channelInput').value.trim().toLowerCase();
-            if (inputVal) currentChannel = inputVal;
+            if (inputVal) {
+                currentChannel = inputVal;
+                socket.emit('join_channel', currentChannel);
+            }
 
             const btn = document.getElementById('connectBtn');
             btn.textContent = "Загрузка...";

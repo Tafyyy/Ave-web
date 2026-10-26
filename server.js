@@ -4,8 +4,12 @@ const path = require('path');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 const fs = require('fs');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 
 if (fs.existsSync('/etc/secrets/.env')) {
     require('dotenv').config({ path: '/etc/secrets/.env' });
@@ -63,6 +67,40 @@ async function initDB() {
 initDB();
 
 const currentMusic = {};
+
+// Глобальное хранилище настроек оверлеев по каналам
+const channelSettings = {};
+
+// ==========================================
+// SOCKET.IO — Синхронизация оверлеев в реальном времени
+// ==========================================
+io.on('connection', (socket) => {
+    socket.on('join_channel', (channelName) => {
+        if (!channelName) return;
+        const room = channelName.toLowerCase();
+        socket.join(room);
+
+        // Отправляем текущие настройки каналу (по умолчанию showBots = false)
+        const settings = channelSettings[room] || { showBots: false };
+        socket.emit('init_settings', settings);
+    });
+
+    socket.on('update_settings', (data) => {
+        if (!data || !data.channel) return;
+        const room = data.channel.toLowerCase();
+
+        if (!channelSettings[room]) {
+            channelSettings[room] = {};
+        }
+
+        if (typeof data.showBots === 'boolean') {
+            channelSettings[room].showBots = data.showBots;
+        }
+
+        // Транслируем обновленные настройки всем подключенным оверлеям канала
+        io.to(room).emit('settings_changed', channelSettings[room]);
+    });
+});
 
 // ==========================================
 // КРИПТОГРАФИЯ И ТОКЕНЫ
@@ -159,9 +197,8 @@ const verifyToken = async (req, res, next) => {
     }
 };
 
-
 // ==========================================
-// МАРШРУТЫ САЙТА (FRONTEND) СО ВСЕЙ ИНСТРУКЦИЕЙ
+// МАРШРУТЫ САЙТА (FRONTEND)
 // ==========================================
 
 app.get('/', async (req, res) => {
@@ -297,7 +334,6 @@ app.get('/', async (req, res) => {
                     </div>
                 </div>
 
-                <!-- Подробная инструкция без смайликов -->
                 <div class="sidebar" id="instructionSidebar">
                     <h3>
                         <span>Инструкция по установке</span>
@@ -642,7 +678,6 @@ app.get('/api/track', (req, res) => {
     res.send(track);
 });
 
-// Пинг-эндпоинт для поддержания активности сервера
 app.get('/api/ping', (req, res) => {
     res.status(200).send('PONG');
 });
@@ -770,6 +805,10 @@ app.get('/api/emotes/:channel', async (req, res) => {
 const publicPath = path.join(__dirname, 'releases', 'public');
 app.use(express.static(publicPath));
 
+app.get('/chat.html', (req, res) => {
+    res.sendFile(path.join(publicPath, 'ave_chat.html'));
+});
+
 app.get('/ave_chat.html', (req, res) => {
     res.sendFile(path.join(publicPath, 'ave_chat.html'));
 });
@@ -787,4 +826,4 @@ app.get('/builder.html', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Hub running on port ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Hub running on port ${PORT}`));
