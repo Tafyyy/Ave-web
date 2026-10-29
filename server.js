@@ -28,7 +28,7 @@ app.use(session({
 
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID;
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET;
-const REDIRECT_URI = process.env.REDIRECT_URI || 'https://avetracker-hub.onrender.com/auth/twitch/callback';
+const REDIRECT_URI = process.env.REDIRECT_URI || 'https://avetracker.ru/auth/twitch/callback';
 
 const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY;
 const TOKEN_SECRET = process.env.TOKEN_SECRET;
@@ -379,7 +379,7 @@ app.get('/', async (req, res) => {
                                 <li>Перейдите в панель управления <a href="https://streamelements.com/dashboard" target="_blank">StreamElements</a> и авторизуйтесь через Twitch.</li>
                                 <li>В меню выберите <b>Chat Commands</b> -> <b>Custom Commands</b> и нажмите <b>Add New Command</b>.</li>
                                 <li>Укажите название команды (например, <code>!song</code> или <code>!трек</code>).</li>
-                                <li>В поле Response вставьте конструкцию со ссылкой из вашего <a href="/dashboard">личного кабинета</a>, например:<br><code>\$(customapi http://avetracker-hub.onrender.com/api/track?channel=Логин_твитча)</code></li>
+                                <li>В поле Response вставьте конструкцию со ссылкой из вашего <a href="/dashboard">личного кабинета</a>, например:<br><code>\$(customapi https://avetracker.ru/api/track?channel=Логин_твитча)</code></li>
                                 <li>Сохраните команду и убедитесь, что бот подключен к вашему каналу.</li>
                             </ol>
                         </div>
@@ -432,9 +432,7 @@ app.get('/dashboard', async (req, res) => {
         token = createSecureToken(req.session.userId, username, req.session.salt || 'v1');
     }
     
-    const serverDomain = req.get('host');
-    const protocol = req.protocol;
-    const streamElementsCommand = `\$(customapi ${protocol}://${serverDomain}/api/track?channel=${username})`;
+    const streamElementsCommand = `\$(customapi https://avetracker.ru/api/track?channel=${username})`;
 
     res.send(`
         <!DOCTYPE html>
