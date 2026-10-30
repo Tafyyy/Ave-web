@@ -801,7 +801,7 @@ app.get('/api/emotes/:channel', async (req, res) => {
 // МАРШРУТЫ ДЛЯ ОВЕРЛЕЕВ И СТАТИКА
 // ==========================================
 const publicPath = path.join(__dirname, 'releases', 'public');
-app.use(express.static(publicPath));
+app.use(express.static(publicPath, { maxAge: '1d' }));
 
 app.get('/chat.html', (req, res) => {
     res.sendFile(path.join(publicPath, 'ave_chat.html'));
