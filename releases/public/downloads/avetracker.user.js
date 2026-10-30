@@ -19,7 +19,7 @@
 
     console.log("🚀 AVETRACKER: Скрипт запущен!");
 
-    const HUB_URL = "https://avetracker-hub.onrender.com/api/update-track";
+    const HUB_URL = "https://avetracker.ru/api/update-track";
     let token = GM_getValue('avetracker_token', '');
     let isPromptOpen = false;
 
