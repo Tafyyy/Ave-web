@@ -20,6 +20,12 @@ if (fs.existsSync('/etc/secrets/.env')) {
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+// Глобальный логгер запросов (теперь на правильном месте — перехватывает всё)
+app.use((req, res, next) => {
+    console.log(`📥 [REQUEST] ${req.method} ${req.url}`);
+    next();
+});
+
 app.use(session({
     secret: process.env.SESSION_SECRET || 'fallback_session_key',
     resave: false,
@@ -802,11 +808,6 @@ app.get('/api/emotes/:channel', async (req, res) => {
 // ==========================================
 const publicPath = path.join(__dirname, 'releases', 'public');
 app.use(express.static(publicPath, { maxAge: '1d' }));
-
-app.use((req, res, next) => {
-    console.log(`📥 [REQUEST] ${req.method} ${req.url}`);
-    next();
-});
 
 app.get('/chat.html', (req, res) => {
     res.sendFile(path.join(publicPath, 'ave_chat.html'));
