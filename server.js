@@ -20,7 +20,7 @@ if (fs.existsSync('/etc/secrets/.env')) {
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Глобальный логгер запросов (теперь на правильном месте — перехватывает всё)
+// Глобальный логгер запросов
 app.use((req, res, next) => {
     console.log(`📥 [REQUEST] ${req.method} ${req.url}`);
     next();
@@ -86,7 +86,6 @@ io.on('connection', (socket) => {
         const room = channelName.toLowerCase();
         socket.join(room);
 
-        // Отправляем текущие настройки каналу (по умолчанию showBots = false)
         const settings = channelSettings[room] || { showBots: false };
         socket.emit('init_settings', settings);
     });
@@ -103,7 +102,6 @@ io.on('connection', (socket) => {
             channelSettings[room].showBots = data.showBots;
         }
 
-        // Транслируем обновленные настройки всем подключенным оверлеям канала
         io.to(room).emit('settings_changed', channelSettings[room]);
     });
 });
@@ -385,7 +383,7 @@ app.get('/', async (req, res) => {
                                 <li>Перейдите в панель управления <a href="https://streamelements.com/dashboard" target="_blank">StreamElements</a> и авторизуйтесь через Twitch.</li>
                                 <li>В меню выберите <b>Chat Commands</b> -> <b>Custom Commands</b> и нажмите <b>Add New Command</b>.</li>
                                 <li>Укажите название команды (например, <code>!song</code> или <code>!трек</code>).</li>
-                                <li>В поле Response вставьте конструкцию со ссылкой из вашего <a href="/dashboard">личного кабинета</a>, например:<br><code>\$(customapi https://avetracker.ru/api/track?channel=Логин_твитча)</code></li>
+                                <li>В поле Response вставьте конструкцию со ссылкой из вашего <a href="/dashboard">личного кабинета</a>.</li>
                                 <li>Сохраните команду и убедитесь, что бот подключен к вашему каналу.</li>
                             </ol>
                         </div>
@@ -438,7 +436,10 @@ app.get('/dashboard', async (req, res) => {
         token = createSecureToken(req.session.userId, username, req.session.salt || 'v1');
     }
     
-    const streamElementsCommand = `\$(customapi https://avetracker.ru/api/track?channel=${username})`;
+    // Динамическое определение хоста и протокола для актуальной ссылки в StreamElements
+    const host = req.get('host');
+    const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+    const streamElementsCommand = `\$(customapi ${protocol}://${host}/api/track?channel=${username})`;
 
     res.send(`
         <!DOCTYPE html>
